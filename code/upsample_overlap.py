@@ -43,6 +43,18 @@ class UpsampleOverlap:
             corresponding to the input chunk, adjusted for overlap. Returns an
             empty string if the input chunk is empty.
         """
+        # ElevenLabs PCM chunks can arrive at non-int16-aligned boundaries.
+        # Carry odd trailing byte forward to the next call.
+        if not hasattr(self, "_byte_carry"):
+            self._byte_carry = b""
+        chunk = self._byte_carry + chunk
+        if len(chunk) % 2:
+            self._byte_carry = chunk[-1:]
+            chunk = chunk[:-1]
+        else:
+            self._byte_carry = b""
+        if len(chunk) == 0:
+            return ""
         audio_int16 = np.frombuffer(chunk, dtype=np.int16)
         # Handle potential empty chunks gracefully
         if audio_int16.size == 0:

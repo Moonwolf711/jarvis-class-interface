@@ -34,7 +34,7 @@ DEFAULT_RECORDER_CONFIG: Dict[str, Any] = {
     "post_speech_silence_duration": 0.7,
     "min_length_of_recording": 0.5,
     "min_gap_between_recordings": 0,
-    "enable_realtime_transcription": True,
+    "enable_realtime_transcription": False,
     "realtime_processing_pause": 0.03,
     "silero_use_onnx": True,
     "silero_deactivity_detection": True,
@@ -48,7 +48,7 @@ DEFAULT_RECORDER_CONFIG: Dict[str, Any] = {
     # Callbacks will be added dynamically in _create_recorder
     "debug_mode": True,
     "initial_prompt_realtime": "The sky is blue. When the sky... She walked home. Because he... Today is sunny. If only I...",
-    "faster_whisper_vad_filter": False,
+    "faster_whisper_vad_filter": True,
 }
 
 

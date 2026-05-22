@@ -33,6 +33,14 @@ except ImportError:
     class APIConnectionError(APIError): pass
     logging.warning("🤖⚠️ openai library not installed. OpenAI/LMStudio backends will not function.")
 
+try:
+    import anthropic
+    ANTHROPIC_AVAILABLE = True
+except ImportError:
+    ANTHROPIC_AVAILABLE = False
+    anthropic = None
+    logging.warning("🤖⚠️ anthropic library not installed. Anthropic backend will not function.")
+
 # Configure logging
 # Use the root logger configured by the main application if available, else basic config
 log_level_str = os.getenv("LOG_LEVEL", "INFO").upper()
@@ -190,7 +198,7 @@ class LLM:
     Handles client initialization, streaming generation, request cancellation,
     system prompts, and basic connection management including an optional `ollama ps` check.
     """
-    SUPPORTED_BACKENDS = ["ollama", "openai", "lmstudio"]
+    SUPPORTED_BACKENDS = ["ollama", "openai", "lmstudio", "anthropic"]
 
     def __init__(
         self,
@@ -225,6 +233,9 @@ class LLM:
              raise ImportError("requests library is required for the 'ollama' backend but not installed.")
         if self.backend in ["openai", "lmstudio"] and not OPENAI_AVAILABLE:
              raise ImportError("openai library is required for the 'openai'/'lmstudio' backends but not installed.")
+        if self.backend == "anthropic" and not ANTHROPIC_AVAILABLE:
+             raise ImportError("anthropic library is required for the 'anthropic' backend but not installed.")
+        self.anthropic_client: Optional[Any] = None
 
         self.model = model
         self.system_prompt = system_prompt
@@ -279,6 +290,7 @@ class LLM:
         if self._client_initialized:
             if self.backend in ["openai", "lmstudio"]: return self.client is not None
             if self.backend == "ollama": return self.ollama_session is not None and self._ollama_connection_ok # Check flag
+            if self.backend == "anthropic": return self.anthropic_client is not None
             return False
 
         with self._client_init_lock:
@@ -295,6 +307,14 @@ class LLM:
                 if self.backend == "openai":
                     self.client = _create_openai_client(self.effective_openai_key, base_url=self.effective_openai_base_url)
                     init_ok = self.client is not None
+                elif self.backend == "anthropic":
+                    api_key = self._api_key or os.getenv("ANTHROPIC_API_KEY")
+                    if not api_key:
+                        logger.error("🤖💥 ANTHROPIC_API_KEY not set")
+                        init_ok = False
+                    else:
+                        self.anthropic_client = anthropic.Anthropic(api_key=api_key)
+                        init_ok = self.anthropic_client is not None
                 elif self.backend == "lmstudio":
                     self.client = _create_openai_client(api_key="lmstudio-key", base_url=self.effective_lmstudio_url)
                     init_ok = self.client is not None
@@ -711,6 +731,50 @@ class LLM:
                 stream_object_to_register = response # The requests.Response object
                 self._register_request(req_id, "ollama", stream_object_to_register)
                 yield from self._yield_ollama_chunks(response, req_id)
+
+            elif self.backend == "anthropic":
+                if self.anthropic_client is None:
+                    raise RuntimeError("Anthropic client not initialized.")
+                # Separate system from messages (Anthropic takes system as a top-level param)
+                sys_text = self.system_prompt or ""
+                conv = [m for m in messages if m.get("role") != "system"]
+
+                # Vision: if an image was attached for this turn, rewrap the LAST user
+                # message into a content list with the image followed by the text.
+                image_b64 = kwargs.pop("image_b64", None)
+                image_media_type = kwargs.pop("image_media_type", "image/jpeg")
+                if image_b64 and conv and conv[-1].get("role") == "user":
+                    last = conv[-1]
+                    last_text = last.get("content", "") if isinstance(last.get("content"), str) else ""
+                    conv[-1] = {
+                        "role": "user",
+                        "content": [
+                            {"type": "image", "source": {"type": "base64", "media_type": image_media_type, "data": image_b64}},
+                            {"type": "text", "text": last_text or "What do you see?"},
+                        ],
+                    }
+                    logger.info(f"🤖👁️ [{req_id}] Attaching vision frame ({len(image_b64)} b64 chars)")
+
+                max_tokens = kwargs.pop("max_tokens", 1024)
+                temperature = kwargs.pop("temperature", 0.7)
+                logger.info(f"🤖💬 [{req_id}] Sending Anthropic request, model={self.model}")
+                stream_ctx = self.anthropic_client.messages.stream(
+                    model=self.model,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    system=sys_text,
+                    messages=conv,
+                )
+                stream_object_to_register = stream_ctx
+                self._register_request(req_id, "anthropic", stream_object_to_register)
+                with stream_ctx as stream:
+                    for text_chunk in stream.text_stream:
+                        with self._requests_lock:
+                            if req_id not in self._active_requests:
+                                logger.info(f"🤖🗑️ Anthropic stream {req_id} cancelled.")
+                                break
+                        if text_chunk:
+                            yield text_chunk
 
             else:
                 # This case should technically be caught by __init__

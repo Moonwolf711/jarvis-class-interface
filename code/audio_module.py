@@ -13,6 +13,44 @@ from huggingface_hub import hf_hub_download
 # Assuming RealtimeTTS is installed and available
 from RealtimeTTS import (CoquiEngine, KokoroEngine, OrpheusEngine,
                          OrpheusVoice, TextToAudioStream)
+try:
+    from RealtimeTTS import ElevenlabsEngine
+    import pyaudio
+    from elevenlabs.client import ElevenLabs
+    from elevenlabs import Voice, VoiceSettings
+
+    class ElevenLabsPCMEngine(ElevenlabsEngine):
+        """ElevenlabsEngine variant that requests raw PCM 24000 Hz instead of MP3.
+        Avoids the MP3→int16 misinterpretation that produces hiss in the upstream pipeline."""
+
+        def get_stream_info(self):
+            return pyaudio.paInt16, 1, 24000
+
+        def synthesize(self, generator) -> bool:
+            voice = Voice(
+                voice_id=self.id,
+                settings=VoiceSettings(
+                    stability=self.stability / 100,
+                    similarity_boost=self.clarity / 100,
+                    style=self.style_exxageration / 100,
+                    use_speaker_boost=True,
+                ),
+            )
+            self.audio_stream = self.client.generate(
+                text=generator,
+                voice=voice,
+                model=self.model,
+                stream=True,
+                output_format="pcm_24000",
+            )
+            for chunk in self.audio_stream:
+                if chunk is not None:
+                    self.queue.put(chunk)
+            return True
+
+    ElevenlabsEngine = ElevenLabsPCMEngine
+except ImportError:
+    ElevenlabsEngine = None
 
 logger = logging.getLogger(__name__)
 
@@ -20,9 +58,10 @@ logger = logging.getLogger(__name__)
 START_ENGINE = "kokoro"
 Silence = namedtuple("Silence", ("comma", "sentence", "default"))
 ENGINE_SILENCES = {
-    "coqui":   Silence(comma=0.3, sentence=0.6, default=0.3),
-    "kokoro":  Silence(comma=0.3, sentence=0.6, default=0.3),
-    "orpheus": Silence(comma=0.3, sentence=0.6, default=0.3),
+    "coqui":      Silence(comma=0.3, sentence=0.6, default=0.3),
+    "kokoro":     Silence(comma=0.3, sentence=0.6, default=0.3),
+    "orpheus":    Silence(comma=0.3, sentence=0.6, default=0.3),
+    "elevenlabs": Silence(comma=0.2, sentence=0.4, default=0.2),
 }
 # Stream chunk sizes influence latency vs. throughput trade-offs
 QUICK_ANSWER_STREAM_CHUNK_SIZE = 8
@@ -139,6 +178,21 @@ class AudioProcessor:
             )
             voice = OrpheusVoice("tara")
             self.engine.set_voice(voice)
+        elif engine == "elevenlabs":
+            if ElevenlabsEngine is None:
+                raise RuntimeError("ElevenlabsEngine unavailable — install realtimetts[elevenlabs]")
+            api_key = os.environ.get("ELEVENLABS_API_KEY")
+            if not api_key:
+                raise RuntimeError("ELEVENLABS_API_KEY not set")
+            self.engine = ElevenlabsEngine(
+                api_key=api_key,
+                voice=os.environ.get("ELEVENLABS_VOICE_ID", "YKrm0N1EAM9Bw27j8kuD"),  # Leonidas
+                id=os.environ.get("ELEVENLABS_VOICE_ID", "YKrm0N1EAM9Bw27j8kuD"),
+                model=os.environ.get("ELEVENLABS_MODEL", "eleven_turbo_v2_5"),
+                stability=0.5,
+                clarity=0.75,
+                style_exxageration=0.4,
+            )
         else:
             raise ValueError(f"Unsupported engine: {engine}")
 

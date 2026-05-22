@@ -6,10 +6,15 @@ services:
     image: realtime-voice-chat:latest # Name the image built by 'build:'
     container_name: realtime-voice-chat-app
     ports:
-      - "8000:8000"
+      - "8181:8000"
     environment:
       # Point to the 'ollama' service
       - OLLAMA_BASE_URL=http://ollama:11434
+      # --- LLM + TTS API keys ---
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
+      - ELEVENLABS_VOICE_ID=${ELEVENLABS_VOICE_ID:-YKrm0N1EAM9Bw27j8kuD}
+      - ELEVENLABS_MODEL=${ELEVENLABS_MODEL:-eleven_turbo_v2_5}
       # --- Other App Environment Variables ---
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - MAX_AUDIO_QUEUE_SIZE=${MAX_AUDIO_QUEUE_SIZE:-50}
@@ -18,27 +23,31 @@ services:
       - HF_HOME=/home/appuser/.cache/huggingface
       - TORCH_HOME=/home/appuser/.cache/torch
     volumes:
-       # Optional: Mount code for live development
-       # - ./code:/app/code
+       # Mount code live so edits take effect without rebuild
+       - ./code:/app/code
+       # Personas live under code/personas — covered by the mount above
        # Mount cache directories
        - huggingface_cache:/home/appuser/.cache/huggingface
        - torch_cache:/home/appuser/.cache/torch
-    depends_on:
-    - ollama
-    deploy: # GPU access for the app
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu, compute, utility]
+    # Ollama not needed — LLM is Anthropic (cloud)
+    # depends_on:
+    # - ollama
+    # GPU passthrough disabled — box is AMD; STT runs CPU-only, TTS/LLM are cloud.
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu, compute, utility]
     restart: unless-stopped
 
-  # Ollama Server Service (Using Official Image)
-  ollama:
+  # Ollama Server Service — DISABLED (using Anthropic Claude via API)
+  ollama-disabled:
     # --- Use the official Ollama image ---
     image: ollama/ollama:latest
     container_name: realtime-voice-chat-ollama
+    profiles: ["donotstart"]
     # --- No 'build:' section needed here ---
     # command: ["ollama", "serve"] # Usually the default command/entrypoint
     volumes:
