@@ -28,17 +28,11 @@ from fastapi.staticfiles import StaticFiles
 from starlette.responses import HTMLResponse, Response, FileResponse
 
 USE_SSL = False
-TTS_START_ENGINE = "orpheus"
-TTS_START_ENGINE = "kokoro"
-TTS_START_ENGINE = "coqui"
-TTS_ORPHEUS_MODEL = "Orpheus_3B-1BaseGGUF/mOrpheus_3B-1Base_Q4_K_M.gguf"
+TTS_START_ENGINE = "elevenlabs"
 TTS_ORPHEUS_MODEL = "orpheus-3b-0.1-ft-Q8_0-GGUF/orpheus-3b-0.1-ft-q8_0.gguf"
 
-LLM_START_PROVIDER = "ollama"
-#LLM_START_MODEL = "qwen3:30b-a3b"
-LLM_START_MODEL = "hf.co/bartowski/huihui-ai_Mistral-Small-24B-Instruct-2501-abliterated-GGUF:Q4_K_M"
-# LLM_START_PROVIDER = "lmstudio"
-# LLM_START_MODEL = "Qwen3-30B-A3B-GGUF/Qwen3-30B-A3B-Q3_K_L.gguf"
+LLM_START_PROVIDER = "anthropic"
+LLM_START_MODEL = os.getenv("LLM_MODEL", "claude-sonnet-4-6")
 NO_THINK = False
 DIRECT_STREAM = TTS_START_ENGINE=="orpheus"
 
@@ -313,6 +307,68 @@ async def process_incoming_data(ws: WebSocket, app: FastAPI, incoming_chunks: as
                     if turn_detection:
                         turn_detection.update_settings(speed_factor)
                         logger.info(f"🖥️⚙️ Updated turn detection settings to factor: {speed_factor:.2f}")
+                elif msg_type == "dictate_text":
+                    # Typeless / typed dictation path — skip Whisper, send straight to LLM
+                    txt = (data.get("content") or "").strip()
+                    if txt:
+                        logger.info(f"🖥️⌨️ Dictated text: {txt}")
+                        # Mirror what the audio pipeline does on a finalized turn
+                        await ws.send_json({"type": "partial_user_request", "content": txt})
+                        await ws.send_json({"type": "final_user_request", "content": txt})
+                        callbacks.final_transcription = txt
+                        callbacks.partial_transcription = txt
+                        app.state.SpeechPipelineManager.history.append({"role": "user", "content": txt})
+                        app.state.SpeechPipelineManager.prepare_generation(txt)
+                elif msg_type == "set_persona":
+                    persona_id = (data.get("persona") or data.get("id") or "").strip()
+                    if persona_id:
+                        result = app.state.SpeechPipelineManager.apply_persona(persona_id)
+                        if result is not None:
+                            await ws.send_json({"type": "active_persona", "payload": result})
+                elif msg_type == "list_personas":
+                    from persona_registry import registry as _pr
+                    await ws.send_json({
+                        "type": "persona_list",
+                        "payload": [p.to_dict() for p in _pr.all()],
+                        "active_id": _pr.active_id,
+                    })
+                elif msg_type == "toggle_vision":
+                    on = bool(data.get("on", False))
+                    app.state.SpeechPipelineManager.vision_active = on
+                    if not on:
+                        app.state.SpeechPipelineManager.last_frame_b64 = None
+                    logger.info(f"🖥️👁️ Vision {'ON' if on else 'OFF'}")
+                    await ws.send_json({"type": "vision_state", "on": on})
+                elif msg_type == "vision_frame":
+                    # base64-encoded JPEG (no data: prefix). Stored as the frame for the next turn.
+                    b64 = data.get("content") or data.get("frame") or ""
+                    if b64 and len(b64) < 700_000:
+                        app.state.SpeechPipelineManager.last_frame_b64 = b64
+                    else:
+                        logger.debug(f"🖥️👁️ Frame dropped (empty or > 700kB: {len(b64)})")
+                elif msg_type == "set_council_mode":
+                    on = bool(data.get("on", False))
+                    council = app.state.SpeechPipelineManager.council
+                    if council is not None:
+                        state = council.set_enabled(on)
+                        await ws.send_json({"type": "council_state", "payload": state})
+                elif msg_type == "set_council_members":
+                    members = data.get("members") or []
+                    council = app.state.SpeechPipelineManager.council
+                    if council is not None:
+                        state = council.set_members(members)
+                        await ws.send_json({"type": "council_state", "payload": state})
+                elif msg_type == "council_run":
+                    # Drive the multi-persona reply chain for this text.
+                    txt = (data.get("content") or "").strip()
+                    council = app.state.SpeechPipelineManager.council
+                    if txt and council is not None and council.enabled and council.members:
+                        async def _on_speaker(persona_dict):
+                            try:
+                                await ws.send_json({"type": "active_speaker", "payload": persona_dict})
+                            except Exception as e:
+                                logger.warning(f"council on_speaker WS error: {e}")
+                        asyncio.create_task(council.run_turn(txt, on_speaker_change=_on_speaker))
 
 
     except asyncio.CancelledError:
@@ -760,16 +816,27 @@ class TranscriptionCallbacks:
         Args:
             txt: The partial assistant text.
         """
-        logger.info(f"{Colors.apply('🖥️💬 PARTIAL ASSISTANT ANSWER: ').green}{txt}")
+        # Strip any <jarvis .../> tags from what we show in transcript (TTS path strips them too)
+        import re
+        clean = re.sub(r"<\s*jarvis\b[^/>]*/?\s*>", "", txt)
+        logger.info(f"{Colors.apply('🖥️💬 PARTIAL ASSISTANT ANSWER: ').green}{clean}")
         # Use connection-specific user_interrupted flag
         if not self.user_interrupted:
-            self.assistant_answer = txt
+            self.assistant_answer = clean
             # Use connection-specific tts_to_client flag
             if self.tts_to_client:
                 self.message_queue.put_nowait({
                     "type": "partial_assistant_answer",
-                    "content": txt
+                    "content": clean
                 })
+
+    def on_jarvis_action(self, attrs: dict):
+        """Forward a <jarvis .../> action from Sophia's stream to the browser as a WS message."""
+        logger.info(f"🖥️🎬 JARVIS ACTION: {attrs}")
+        self.message_queue.put_nowait({
+            "type": "jarvis_action",
+            "payload": attrs,
+        })
 
     def on_recording_start(self):
         """
@@ -904,8 +971,20 @@ async def websocket_endpoint(ws: WebSocket):
     app.state.AudioInputProcessor.recording_start_callback = callbacks.on_recording_start
     app.state.AudioInputProcessor.silence_active_callback = callbacks.on_silence_active
 
-    # Assign callback to the SpeechPipelineManager (global component)
+    # Assign callbacks to the SpeechPipelineManager (global component)
     app.state.SpeechPipelineManager.on_partial_assistant_text = callbacks.on_partial_assistant_text
+    app.state.SpeechPipelineManager.on_jarvis_action = callbacks.on_jarvis_action
+
+    # Emit the persona list + active persona on connection so the UI can populate the picker.
+    try:
+        from persona_registry import registry as _pr
+        await ws.send_json({
+            "type": "persona_list",
+            "payload": [p.to_dict() for p in _pr.all()],
+            "active_id": _pr.active_id,
+        })
+    except Exception as exc:
+        logger.warning(f"🎭⚠️ Could not emit initial persona list: {exc}")
 
     # Create tasks for handling different responsibilities
     # Pass the 'callbacks' instance to tasks that need connection-specific state

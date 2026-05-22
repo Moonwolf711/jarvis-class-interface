@@ -147,7 +147,22 @@ class SpeechPipelineManager:
         self.no_think = no_think
         self.orpheus_model = orpheus_model
 
-        self.system_prompt = system_prompt
+        # Try the persona registry first — if a persona is active, its prompt + voice override.
+        try:
+            from persona_registry import registry as _persona_registry
+            self._persona_registry = _persona_registry
+            active = _persona_registry.get()
+            if active is not None:
+                logger.info(f"🎭🌟 Booting with persona '{active.name}' "
+                            f"(voice={active.voice_name}, color={active.ring_color})")
+                self.system_prompt = active.system_prompt
+            else:
+                self.system_prompt = system_prompt
+        except Exception as exc:
+            logger.warning(f"🎭⚠️ Persona registry unavailable, using file system_prompt: {exc}")
+            self._persona_registry = None
+            self.system_prompt = system_prompt
+
         if tts_engine == "orpheus":
             self.system_prompt += f"\n{orpheus_prompt_addon}"
 
@@ -156,6 +171,13 @@ class SpeechPipelineManager:
             engine=self.tts_engine,
             orpheus_model=self.orpheus_model
         )
+
+        # Apply persona's voice to the engine if registry was available
+        if self._persona_registry is not None:
+            active = self._persona_registry.get()
+            if active and hasattr(self.audio, "engine") and hasattr(self.audio.engine, "id"):
+                self.audio.engine.id = active.voice_id
+                logger.info(f"🎭🔊 Engine voice_id set to {active.voice_id} ({active.voice_name})")
         self.audio.on_first_audio_chunk_synthesize = self.on_first_audio_chunk_synthesize
         self.text_similarity = TextSimilarity(focus='end', n_words=5)
         self.text_context = TextContext()
@@ -210,11 +232,54 @@ class SpeechPipelineManager:
         self.tts_final_inference_thread.start()
 
         self.on_partial_assistant_text: Optional[Callable[[str], None]] = None
+        self.on_jarvis_action: Optional[Callable[[dict], None]] = None
+        self.on_persona_changed: Optional[Callable[[dict], None]] = None
+        self._jarvis_buffer: str = ""
+        # Vision: latest frame (base64 JPEG, no data: prefix) and active flag.
+        self.vision_active: bool = False
+        self.last_frame_b64: Optional[str] = None
+        # Council coordinator (multi-persona reply chain).
+        try:
+            from council import CouncilCoordinator
+            self.council = CouncilCoordinator(self)
+        except Exception as exc:
+            logger.warning(f"🎭🏛️ Council coordinator unavailable: {exc}")
+            self.council = None
 
         self.full_output_pipeline_latency = self.llm_inference_time + self.audio.tts_inference_time
         logger.info(f"🗣️⏱️ Full output pipeline latency: {self.full_output_pipeline_latency:.2f}ms (LLM: {self.llm_inference_time:.2f}ms, TTS: {self.audio.tts_inference_time:.2f}ms)")
 
         logger.info("🗣️🚀 SpeechPipelineManager initialized and workers started.")
+
+    def apply_persona(self, persona_id: str) -> Optional[dict]:
+        """Hot-swap to a different persona: voice + system prompt + ring color.
+
+        Affects the NEXT generation (in-flight generations finish in the old voice
+        to avoid mid-utterance audio glitches).
+        """
+        if self._persona_registry is None:
+            logger.warning("🎭⚠️ apply_persona called but registry is unavailable")
+            return None
+        persona = self._persona_registry.set_active(persona_id)
+        if persona is None:
+            return None
+        self.system_prompt = persona.system_prompt
+        if self.tts_engine == "orpheus":
+            self.system_prompt += f"\n{orpheus_prompt_addon}"
+        # Patch LLM system prompt for next call
+        self.llm.system_prompt = self.system_prompt
+        self.llm.system_prompt_message = {"role": "system", "content": self.system_prompt}
+        # Patch TTS engine voice
+        if hasattr(self.audio, "engine") and hasattr(self.audio.engine, "id"):
+            self.audio.engine.id = persona.voice_id
+            logger.info(f"🎭🔁 Persona → {persona.name}  voice={persona.voice_name}  color={persona.ring_color}")
+        # Notify upstream
+        if self.on_persona_changed:
+            try:
+                self.on_persona_changed(persona.to_dict())
+            except Exception as exc:
+                logger.warning(f"🎭⚠️ on_persona_changed callback error: {exc}")
+        return persona.to_dict()
 
     def is_valid_gen(self) -> bool:
         """
@@ -298,7 +363,48 @@ class SpeechPipelineManager:
         Returns:
             The preprocessed text chunk.
         """
+        chunk = self._strip_jarvis_tags(chunk)
         return chunk.replace("—", "-").replace("“", '"').replace("”", '"').replace("‘", "'").replace("’", "'").replace("…", "...")
+
+    # Jarvis inline-tag protocol — Sophia emits <jarvis show="image" src="URL" caption="..." tag="..."/>
+    # and we strip the tag from the spoken audio, fire on_jarvis_action with parsed attrs.
+    _JARVIS_TAG_RE = __import__("re").compile(r"<\s*jarvis\b([^/>]*)/?\s*>", __import__("re").IGNORECASE)
+    _JARVIS_ATTR_RE = __import__("re").compile(r'(\w+)\s*=\s*"([^"]*)"')
+
+    def _strip_jarvis_tags(self, chunk: str) -> str:
+        # Accumulate so tags split across LLM token boundaries still parse
+        self._jarvis_buffer += chunk
+        out_parts = []
+        buf = self._jarvis_buffer
+        i = 0
+        while True:
+            lt = buf.find("<", i)
+            if lt < 0:
+                out_parts.append(buf[i:])
+                self._jarvis_buffer = ""
+                break
+            # Detect a possible partial tag at the end — keep it in buffer
+            gt = buf.find(">", lt)
+            if gt < 0:
+                out_parts.append(buf[i:lt])
+                self._jarvis_buffer = buf[lt:]
+                break
+            tag_text = buf[lt:gt + 1]
+            m = self._JARVIS_TAG_RE.match(tag_text)
+            if m:
+                attrs = {k.lower(): v for k, v in self._JARVIS_ATTR_RE.findall(m.group(1))}
+                if self.on_jarvis_action:
+                    try:
+                        self.on_jarvis_action(attrs)
+                    except Exception as e:
+                        logger.warning(f"🗣️🎬💥 on_jarvis_action callback error: {e}")
+                logger.info(f"🗣️🎬 Jarvis tag captured: {attrs}")
+                out_parts.append(buf[i:lt])
+                i = gt + 1
+            else:
+                out_parts.append(buf[i:gt + 1])
+                i = gt + 1
+        return "".join(out_parts)
 
     def clean_quick_answer(self, text: str) -> str:
         """
@@ -819,10 +925,37 @@ class SpeechPipelineManager:
             logger.info(f"🗣️🧠🚀 [Gen {new_gen_id}] Calling LLM generate...")
             # TODO: Update history management if needed
             # self.history.append({"role": "user", "content": txt}) # Example history update
+            # Build + apply the processor chain for this turn.
+            llm_kwargs = {}
+            try:
+                from processors import TurnContext, build_chain, apply_chain
+                # Persona's processor list, with sensible defaults if missing
+                proc_names = []
+                if self._persona_registry is not None:
+                    active = self._persona_registry.get()
+                    if active is not None:
+                        proc_names = active.extra.get("processors") or []
+                if not proc_names:
+                    proc_names = ["persona_inject", "history_trim", "vision_attach"]
+                ctx = TurnContext(
+                    user_text=txt,
+                    history=list(self.history),
+                    pipeline_ref=self,
+                )
+                ctx = apply_chain(build_chain(proc_names), ctx)
+                llm_kwargs.update(ctx.llm_kwargs or {})
+                if ctx.notes:
+                    logger.info(f"⚙️ [Gen {new_gen_id}] processor chain: {', '.join(ctx.notes)}")
+            except Exception as exc:
+                logger.warning(f"⚙️💥 [Gen {new_gen_id}] processor chain error: {exc}")
+            # Strip non-LLM-known kwargs that some processors set as hints
+            llm_kwargs.pop("clock_hint", None)
+
             self.running_generation.llm_generator = self.llm.generate(
                 text=txt,
                 history=self.history, # Pass current history
                 use_system_prompt=True,
+                **llm_kwargs,
             )
             logger.info(f"🗣️🧠✔️ [Gen {new_gen_id}] LLM generator created. Setting generator ready event.")
             self.generator_ready_event.set() # Signal LLM worker
