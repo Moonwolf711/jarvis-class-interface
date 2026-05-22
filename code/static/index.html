@@ -1,292 +1,1403 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Real-Time Voice Chat</title>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Inter:400,500,700&display=swap">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SOPHIA // JARVIS-CLASS INTERFACE</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
+
   <style>
     :root {
-      /* Colors for a serious and neat look */
-      --primary: #2c3e50;               /* Deep slate */
-      --secondary: #e0e0e0;             /* Light gray */
-      --bubble-user: #2c3e50;           /* User message bubble */
-      --bubble-user-text: #ffffff;      /* White text for user bubble */
-      --bubble-assistant: #dcdcdc;      /* Assistant message bubble */
-      --bubble-assistant-text: #333333; /* Dark gray text for assistant bubble */
-      --bg: #f4f4f4;                    /* Very light gray page background */
-      --shadow: 0 2px 8px rgba(0,0,0,0.15);
+      --void:        #050810;
+      --void-2:      #0a1020;
+      --reactor:     #14e3ff;
+      --reactor-2:   #6affff;
+      --reactor-dim: rgba(20, 227, 255, 0.18);
+      --reactor-glow: rgba(20, 227, 255, 0.55);
+      --ember:       #ff6b1a;
+      --ember-glow:  rgba(255, 107, 26, 0.55);
+      --gold:        #d4af37;
+      --text:        #e8f4ff;
+      --text-dim:    rgba(232, 244, 255, 0.42);
+      --text-faint:  rgba(232, 244, 255, 0.18);
+      --grid:        rgba(20, 227, 255, 0.08);
+
+      --orb-size: 50vmin;
+      --mic-level: 0;
+      --tts-active: 0;
     }
-    html, body {
-      height: 100%;
-      margin: 0;
-      padding: 0;
-    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; padding: 0; overflow: hidden; }
+
     body {
-      font-family: 'Inter', Arial, sans-serif;
-      background: url("static/background.jpg") no-repeat center center fixed;
-      background-size: cover;
-      color: #222;
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-    }
-    #app {
-      flex: 1;
-      display: flex;
-      justify-content: center;
-      align-items: stretch;
-      min-height: 100vh;
-    }
-    .chat-container {
-      flex: 1;
-      max-width: 480px;
-      width: 100%;
-      background: #fff;
-      box-shadow: var(--shadow);
-      margin: 24px 0;
-      border-radius: 16px;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-    }
-    .header {
-      background: var(--primary);
-      color: #fff;
-      padding: 18px 24px;
-      font-size: 1.25rem;
-      letter-spacing: 1px;
-      font-weight: 500;
-      border-top-left-radius: 16px;
-      border-top-right-radius: 16px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    .status {
-      font-size: 0.9rem;
-      color: #c0c0c0;
-      margin-left: auto;
-    }
-    .messages {
-      flex: 1;
-      padding: 20px 16px 16px 16px;
-      overflow-y: auto;
-      background: var(--bg);
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-    }
-    .bubble {
-      padding: 12px 16px;
-      border-radius: 16px;
-      max-width: 82%;
-      font-size: 1.02rem;
-      line-height: 1.6;
+      background:
+        radial-gradient(ellipse at 50% 60%, var(--void-2) 0%, var(--void) 65%) fixed,
+        var(--void);
+      color: var(--text);
+      font-family: 'JetBrains Mono', ui-monospace, monospace;
+      font-weight: 300;
+      letter-spacing: 0.02em;
       position: relative;
-      display: inline-block;
-      word-break: break-word;
-      box-shadow: 0 0.5px 2px rgba(44,62,80,0.1);
     }
-    .bubble.user {
-      background: var(--bubble-user);
-      color: var(--bubble-user-text);
-      align-self: flex-end;
-      border-bottom-right-radius: 4px;
-      margin-left: auto;
+
+    /* ---------- Background field: grid + grain + scan ---------- */
+    body::before {
+      content: "";
+      position: fixed; inset: 0;
+      background-image:
+        linear-gradient(var(--grid) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+      background-size: 80px 80px, 80px 80px;
+      mask-image: radial-gradient(ellipse at 50% 50%, #000 30%, transparent 75%);
+      pointer-events: none;
+      z-index: 0;
+      animation: grid-drift 60s linear infinite;
     }
-    .bubble.assistant {
-      background: var(--bubble-assistant);
-      color: var(--bubble-assistant-text);
-      align-self: flex-start;
-      border-bottom-left-radius: 4px;
-      margin-right: auto;
+    @keyframes grid-drift {
+      from { background-position: 0 0, 0 0; }
+      to   { background-position: 80px 80px, 80px 80px; }
     }
-    /* Updated typing bubble to a simpler, lighter color */
-    .bubble.typing {
-      background: #ebedef;
-      color: #444;
-      font-style: italic;
-      opacity: 0.9;
-      animation: pulsebg 1.3s linear infinite;
-      min-width: 60px;
-      border-radius: 16px;
+    #grain {
+      position: fixed; inset: 0;
+      pointer-events: none;
+      z-index: 50;
+      opacity: 0.08;
+      mix-blend-mode: overlay;
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.6 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
     }
-    @keyframes pulsebg {
-      0% { opacity: 0.8; }
-      50% { opacity: 1; }
-      100% { opacity: 0.8; }
+    #scan {
+      position: fixed; inset: 0;
+      pointer-events: none;
+      z-index: 40;
+      background: linear-gradient(180deg, transparent 0%, rgba(20, 227, 255, 0.04) 50%, transparent 100%);
+      animation: scan 8s linear infinite;
     }
-    .input-bar {
-      display: flex;
-      padding: 12px 12px;
-      background: #fff;
-      border-top: 1px solid #e1e5ef;
+    @keyframes scan {
+      0%   { transform: translateY(-100vh); }
+      100% { transform: translateY(100vh); }
+    }
+    #particles { position: fixed; inset: 0; z-index: 1; pointer-events: none; }
+
+    /* ---------- Layout ---------- */
+    #stage {
+      position: relative;
+      z-index: 10;
+      height: 100vh;
+      display: grid;
+      grid-template-rows: 90px 1fr 110px;
+      grid-template-columns: 1fr;
+    }
+
+    /* ---------- HUD corners ---------- */
+    .hud {
+      position: fixed;
+      z-index: 30;
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 400;
+      font-size: 11px;
+      letter-spacing: 0.18em;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      pointer-events: none;
+    }
+    .hud b { color: var(--reactor); font-weight: 500; }
+    .hud em { color: var(--ember); font-style: normal; font-weight: 500; }
+    .hud .brk {
+      position: absolute;
+      width: 18px; height: 18px;
+      border: 1.5px solid var(--reactor);
+      opacity: 0.7;
+    }
+    .hud-tl { top: 20px; left: 24px; }
+    .hud-tl .brk { top: -8px; left: -8px; border-right: none; border-bottom: none; }
+    .hud-tr { top: 20px; right: 24px; text-align: right; }
+    .hud-tr .brk { top: -8px; right: -8px; border-left: none; border-bottom: none; }
+    .hud-bl { bottom: 20px; left: 24px; }
+    .hud-bl .brk { bottom: -8px; left: -8px; border-right: none; border-top: none; }
+    .hud-br { bottom: 20px; right: 24px; text-align: right; }
+    .hud-br .brk { bottom: -8px; right: -8px; border-left: none; border-top: none; }
+
+    .hud .row { display: block; margin: 3px 0; }
+    .hud .label { color: var(--text-faint); margin-right: 6px; }
+    .hud-bl canvas { display: block; margin-top: 6px; opacity: 0.85; }
+
+    /* ---------- Title ribbon ---------- */
+    #title {
+      position: fixed;
+      top: 22px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 30;
+      font-family: 'Chakra Petch', sans-serif;
+      font-weight: 600;
+      font-size: 13px;
+      letter-spacing: 0.55em;
+      color: var(--text);
+      text-transform: uppercase;
+      padding: 8px 22px;
+      border: 1px solid var(--reactor-dim);
+      background: rgba(5, 8, 16, 0.6);
+      backdrop-filter: blur(8px);
+    }
+    #title b { color: var(--reactor); font-weight: 700; }
+    #title::before, #title::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      width: 60px; height: 1px;
+      background: var(--reactor-dim);
+    }
+    #title::before { right: 100%; margin-right: 10px; }
+    #title::after { left: 100%; margin-left: 10px; }
+
+    /* ---------- Main stage ---------- */
+    main {
+      position: relative;
+      grid-row: 2;
+      display: grid;
+      grid-template-columns: 1fr minmax(var(--orb-size), 60vmin) 1fr;
       align-items: center;
-      gap: 8px;
+      justify-items: center;
+      gap: 24px;
+      padding: 0 4vw;
     }
-    .input-bar button {
-      appearance: none;
-      outline: none;
-      border: none;
-      padding: 8px 18px;
-      background: var(--primary);
-      color: #fff;
-      font-size: 1rem;
-      border-radius: 7px;
-      cursor: pointer;
-      font-weight: 500;
-      transition: background 0.2s;
-      margin-left: 4px;
+
+    /* ---------- Media slot (image/video calls to screen) ---------- */
+    #mediaSlot {
+      justify-self: start;
+      align-self: center;
+      width: 100%;
+      max-width: 340px;
+      min-height: 200px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      pointer-events: auto;
     }
-    .input-bar button:active {
-      background: #203a4a;
+    .holo-frame {
+      position: relative;
+      border: 1px solid var(--reactor-dim);
+      background: linear-gradient(135deg, rgba(20, 227, 255, 0.04), rgba(5, 8, 16, 0.6));
+      padding: 14px;
+      animation: holo-in 0.7s cubic-bezier(.2,.7,.2,1) backwards;
+      backdrop-filter: blur(4px);
     }
-    .input-bar button:disabled {
-      background: #a0a0a0;
-      cursor: default;
+    .holo-frame::before, .holo-frame::after {
+      content: "";
+      position: absolute;
+      width: 12px; height: 12px;
+      border: 1.5px solid var(--reactor);
     }
-    @media (max-width: 600px) {
-      .chat-container {
-        margin: 0;
-        border-radius: 0;
-        max-width: 100vw;
-      }
-      .header {
-        border-radius: 0;
-      }
+    .holo-frame::before { top: -1px; left: -1px; border-right: none; border-bottom: none; }
+    .holo-frame::after  { bottom: -1px; right: -1px; border-left: none; border-top: none; }
+    .holo-frame img, .holo-frame video {
+      width: 100%;
+      display: block;
+      filter: hue-rotate(-10deg) saturate(0.9) brightness(1.05);
+      mix-blend-mode: screen;
     }
+    .holo-frame .holo-caption {
+      font-size: 10px;
+      letter-spacing: 0.3em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      margin-top: 10px;
+      display: flex;
+      justify-content: space-between;
+    }
+    .holo-frame .holo-caption b { color: var(--reactor); font-weight: 500; }
+    @keyframes holo-in {
+      0%   { opacity: 0; clip-path: polygon(0 0, 100% 0, 100% 0, 0 0); transform: translateX(-20px); }
+      40%  { opacity: 0.5; clip-path: polygon(0 0, 100% 0, 100% 50%, 0 50%); }
+      100% { opacity: 1; clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%); transform: translateX(0); }
+    }
+
+    /* ---------- THE ORB ---------- */
+    #orb-wrap {
+      position: relative;
+      width: var(--orb-size);
+      height: var(--orb-size);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* Outer aura */
+    #orb-wrap::before {
+      content: "";
+      position: absolute;
+      inset: -18%;
+      border-radius: 50%;
+      background: radial-gradient(circle, var(--reactor-glow) 0%, transparent 55%);
+      filter: blur(28px);
+      opacity: calc(0.4 + var(--mic-level) * 0.7 + var(--tts-active) * 0.4);
+      transition: opacity 0.18s linear;
+      pointer-events: none;
+    }
+    body.state-thinking #orb-wrap::before { background: radial-gradient(circle, var(--ember-glow) 0%, transparent 55%); }
+    body.state-speaking #orb-wrap::before { background: radial-gradient(circle, var(--reactor-glow) 0%, transparent 55%); opacity: 0.95; }
+
+    .ring {
+      position: absolute;
+      border-radius: 50%;
+      pointer-events: none;
+    }
+    .ring-1 {
+      inset: 0;
+      border: 1px solid var(--reactor-dim);
+      background:
+        conic-gradient(from 0deg, transparent 0deg, var(--reactor) 4deg, transparent 8deg,
+                       transparent 90deg, var(--reactor-2) 94deg, transparent 98deg,
+                       transparent 180deg, var(--reactor) 184deg, transparent 188deg,
+                       transparent 270deg, var(--reactor-2) 274deg, transparent 278deg);
+      mask: radial-gradient(circle, transparent 49%, #000 49.5%, #000 50%, transparent 50.5%);
+      -webkit-mask: radial-gradient(circle, transparent 49%, #000 49.5%, #000 50%, transparent 50.5%);
+      animation: spin 12s linear infinite;
+    }
+    .ring-2 {
+      inset: 6%;
+      border: 1px dashed rgba(20, 227, 255, 0.22);
+      animation: spin-rev 26s linear infinite;
+    }
+    .ring-3 {
+      inset: 14%;
+      border-top: 2px solid var(--reactor);
+      border-right: 2px solid var(--reactor);
+      border-bottom: 2px solid transparent;
+      border-left: 2px solid transparent;
+      opacity: 0.75;
+      animation: spin 6s cubic-bezier(.4,.1,.6,.9) infinite;
+    }
+    .ring-4 {
+      inset: 22%;
+      border-bottom: 1px solid var(--ember);
+      border-left: 1px solid var(--ember);
+      border-top: 1px solid transparent;
+      border-right: 1px solid transparent;
+      opacity: 0.55;
+      animation: spin-rev 9s linear infinite;
+    }
+    .ring-tick {
+      inset: 2%;
+      background: conic-gradient(from 0deg,
+        transparent 0deg, transparent 4deg,
+        var(--reactor-dim) 4deg, var(--reactor-dim) 5deg,
+        transparent 5deg);
+      background-size: 100% 100%;
+      mask: radial-gradient(circle, transparent 48%, #000 49%, #000 50%, transparent 51%);
+      -webkit-mask: radial-gradient(circle, transparent 48%, #000 49%, #000 50%, transparent 51%);
+      opacity: 0.6;
+    }
+
+    .core {
+      position: absolute;
+      inset: 32%;
+      border-radius: 50%;
+      background:
+        radial-gradient(circle at 35% 30%, var(--reactor-2) 0%, var(--reactor) 18%, transparent 55%),
+        radial-gradient(circle at 60% 70%, rgba(255,107,26,0.4) 0%, transparent 50%),
+        radial-gradient(circle, var(--reactor) 0%, rgba(20, 227, 255, 0.4) 35%, var(--void-2) 90%);
+      box-shadow:
+        inset 0 0 60px rgba(20, 227, 255, 0.6),
+        0 0 calc(40px + var(--mic-level) * 80px) var(--reactor-glow);
+      transform: scale(calc(0.92 + var(--mic-level) * 0.25 + var(--tts-active) * 0.12));
+      transition: transform 0.12s ease-out, box-shadow 0.18s linear;
+      animation: core-breathe 4.5s ease-in-out infinite;
+      mix-blend-mode: screen;
+    }
+    body.state-thinking .core {
+      background:
+        radial-gradient(circle at 35% 30%, #ffb070 0%, var(--ember) 25%, transparent 55%),
+        radial-gradient(circle, var(--ember) 0%, rgba(255,107,26,0.4) 35%, var(--void-2) 90%);
+      box-shadow:
+        inset 0 0 60px var(--ember-glow),
+        0 0 60px var(--ember-glow);
+    }
+
+    @keyframes core-breathe {
+      0%, 100% { filter: brightness(1) blur(0px); }
+      50%      { filter: brightness(1.15) blur(0.6px); }
+    }
+    @keyframes spin     { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    @keyframes spin-rev { from { transform: rotate(0deg); } to { transform: rotate(-360deg); } }
+
+    /* Reticle crosshair through the orb */
+    .reticle {
+      position: absolute;
+      inset: -10%;
+      pointer-events: none;
+    }
+    .reticle::before, .reticle::after {
+      content: "";
+      position: absolute;
+      background: linear-gradient(90deg, transparent, var(--reactor-dim) 20%, var(--reactor-dim) 80%, transparent);
+    }
+    .reticle::before { top: 50%; left: 0; right: 0; height: 1px; transform: translateY(-50%); }
+    .reticle::after  { left: 50%; top: 0; bottom: 0; width: 1px; transform: translateX(-50%); background: linear-gradient(180deg, transparent, var(--reactor-dim) 20%, var(--reactor-dim) 80%, transparent); }
+
+    /* Listening waveform inside orb */
+    #orbWave {
+      position: absolute;
+      inset: 35%;
+      width: 30%;
+      height: 30%;
+      border-radius: 50%;
+      mix-blend-mode: screen;
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+    body.state-listening #orbWave,
+    body.state-speaking #orbWave  { opacity: 0.85; }
+
+    /* ---------- Transcript / messages ---------- */
+    #messages {
+      justify-self: end;
+      align-self: stretch;
+      width: 100%;
+      max-width: 380px;
+      padding: 60px 0 60px 0;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      gap: 14px;
+      scrollbar-width: thin;
+      scrollbar-color: var(--reactor-dim) transparent;
+      mask-image: linear-gradient(180deg, transparent 0%, #000 12%, #000 88%, transparent 100%);
+    }
+    #messages::-webkit-scrollbar { width: 4px; }
+    #messages::-webkit-scrollbar-thumb { background: var(--reactor-dim); }
+
+    .bubble {
+      position: relative;
+      padding: 12px 14px 12px 16px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      line-height: 1.55;
+      color: var(--text);
+      background: rgba(5, 8, 16, 0.55);
+      backdrop-filter: blur(6px);
+      border: 1px solid var(--text-faint);
+      border-left-width: 3px;
+      animation: msg-in 0.45s cubic-bezier(.2,.7,.2,1) backwards;
+      max-width: 100%;
+      word-break: break-word;
+    }
+    .bubble::before {
+      position: absolute;
+      top: -8px; left: 12px;
+      font-family: 'Chakra Petch', sans-serif;
+      font-size: 9px;
+      letter-spacing: 0.25em;
+      padding: 1px 6px;
+      background: var(--void);
+      text-transform: uppercase;
+    }
+    .bubble.user            { border-left-color: var(--ember);   color: var(--text); }
+    .bubble.user::before    { content: "OPERATOR // TYLER"; color: var(--ember); }
+    .bubble.assistant       { border-left-color: var(--reactor); }
+    .bubble.assistant::before { content: "SOPHIA // CLAUDE"; color: var(--reactor); }
+    .bubble.typing          { font-style: italic; opacity: 0.65; }
+    .bubble.typing.user::before     { content: "OPERATOR // LIVE"; }
+    .bubble.typing.assistant::before { content: "SOPHIA // STREAMING"; }
+
+    @keyframes msg-in {
+      from { opacity: 0; transform: translateX(20px); clip-path: inset(0 100% 0 0); }
+      to   { opacity: 1; transform: translateX(0);  clip-path: inset(0 0 0 0); }
+    }
+
+    /* ---------- Bottom controls ---------- */
+    footer {
+      grid-row: 3;
+      position: relative;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      padding: 0 24px;
+    }
+
     .btn {
+      position: relative;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      padding: 12px 24px;
-      border: none;
-      border-radius: 6px;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+      gap: 8px;
+      padding: 12px 22px;
+      min-width: 130px;
+      background: rgba(5, 8, 16, 0.6);
+      border: 1px solid var(--reactor-dim);
+      color: var(--text);
+      font-family: 'Chakra Petch', sans-serif;
       font-weight: 500;
-      font-size: 16px;
+      font-size: 12px;
+      letter-spacing: 0.35em;
+      text-transform: uppercase;
       cursor: pointer;
-      color: white;
-      transition: all 0.2s ease;
+      backdrop-filter: blur(6px);
+      transition: background 0.2s, border-color 0.2s, color 0.2s, transform 0.1s;
     }
-
-    .btn svg {
-      margin: 0;
+    .btn::before, .btn::after {
+      content: ""; position: absolute;
+      width: 8px; height: 8px;
+      border: 1px solid var(--reactor);
     }
-
-    .start-btn {
-      background-color: #2a3543;
-    }
-
-    .stop-btn {
-      background-color: #c04949;
-    }
-
-    .reset-btn {
-      background-color: #0d65d0;
-    }
-
+    .btn::before { top: -1px; left: -1px; border-right: none; border-bottom: none; }
+    .btn::after  { bottom: -1px; right: -1px; border-left: none; border-top: none; }
     .btn:hover {
-      opacity: 0.9;
+      color: var(--reactor-2);
+      border-color: var(--reactor);
+      background: rgba(20, 227, 255, 0.08);
+      box-shadow: 0 0 30px rgba(20, 227, 255, 0.2);
+    }
+    .btn:active { transform: scale(0.98); }
+    .btn svg { width: 14px; height: 14px; }
+    .btn.start-btn:hover { color: var(--reactor-2); }
+    .btn.stop-btn        { border-color: rgba(255,107,26,0.4); }
+    .btn.stop-btn::before, .btn.stop-btn::after { border-color: var(--ember); }
+    .btn.stop-btn:hover  { color: var(--ember); border-color: var(--ember); background: rgba(255,107,26,0.08); box-shadow: 0 0 30px rgba(255,107,26,0.2); }
+    .btn.reset-btn       { min-width: 110px; }
+    .btn[aria-pressed="true"] {
+      color: var(--persona-color, var(--reactor));
+      border-color: var(--persona-color, var(--reactor));
+      background: color-mix(in srgb, var(--persona-color, var(--reactor)) 12%, transparent);
+      box-shadow: 0 0 30px color-mix(in srgb, var(--persona-color, var(--reactor)) 30%, transparent);
     }
 
-    .btn:active {
-      transform: scale(0.98);
-    }    
+    /* Holo frame restyle for video — slightly different than image */
+    #visionFrame video {
+      width: 100%;
+      display: block;
+      filter: hue-rotate(-8deg) saturate(0.9) brightness(1.0);
+      mix-blend-mode: screen;
+    }
+
+    /* Speed control */
     .speed-control {
-      flex: 1;
-      margin: 0 16px;
-      max-width: 200px;
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 4px;
+      min-width: 180px;
+      margin-right: 6px;
+    }
+    .speed-control .label {
+      font-size: 9px;
+      letter-spacing: 0.35em;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      font-family: 'Chakra Petch', sans-serif;
     }
     #speedSlider {
-      width: 100%;
-      height: 4px;
-      background: #e0e0e0;
-      border-radius: 2px;
-      outline: none;
       -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 2px;
+      background: var(--reactor-dim);
+      outline: none;
+      cursor: pointer;
     }
     #speedSlider::-webkit-slider-thumb {
       -webkit-appearance: none;
-      width: 16px;
-      height: 16px;
-      background: #2c3e50;
-      border-radius: 50%;
+      width: 14px;
+      height: 14px;
+      background: var(--reactor);
+      border-radius: 0;
+      transform: rotate(45deg);
+      cursor: pointer;
+      box-shadow: 0 0 10px var(--reactor-glow);
+    }
+    #speedSlider::-moz-range-thumb {
+      width: 14px;
+      height: 14px;
+      background: var(--reactor);
+      border: none;
+      transform: rotate(45deg);
       cursor: pointer;
     }
     .speed-labels {
       display: flex;
       justify-content: space-between;
-      margin-top: 4px;
-      font-size: 0.8rem;
-      color: #666;
+      font-size: 9px;
+      letter-spacing: 0.25em;
+      color: var(--text-faint);
+      text-transform: uppercase;
+      font-family: 'Chakra Petch', sans-serif;
+    }
+
+    /* ---------- Floating status under orb ---------- */
+    #statusLabel {
+      position: fixed;
+      left: 50%;
+      bottom: 150px;
+      transform: translateX(-50%);
+      z-index: 25;
+      font-family: 'Chakra Petch', sans-serif;
+      font-size: 11px;
+      letter-spacing: 0.4em;
+      color: var(--reactor);
+      text-transform: uppercase;
+      text-align: center;
+      pointer-events: none;
+    }
+    #statusLabel::before {
+      content: ""; display: inline-block;
+      width: 6px; height: 6px;
+      background: var(--reactor);
+      border-radius: 50%;
+      margin-right: 10px;
+      box-shadow: 0 0 12px var(--reactor);
+      animation: pulse-dot 1.6s ease-in-out infinite;
+    }
+    @keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:.35} }
+
+    /* hide raw status div (we render statusText via JS to the label) */
+    #status { display: none; }
+
+    /* ---------- Persona picker ---------- */
+    #personaPicker {
+      position: fixed;
+      top: 58px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 31;
+      font-family: 'Chakra Petch', sans-serif;
+    }
+    #personaChip {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 7px 16px;
+      background: rgba(5, 8, 16, 0.7);
+      border: 1px solid var(--reactor-dim);
+      color: var(--text);
+      font-size: 11px;
+      letter-spacing: 0.35em;
+      text-transform: uppercase;
+      cursor: pointer;
+      backdrop-filter: blur(8px);
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    #personaChip:hover {
+      border-color: var(--persona-color, var(--reactor));
+      box-shadow: 0 0 24px color-mix(in srgb, var(--persona-color, var(--reactor)) 35%, transparent);
+    }
+    #personaChip .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--persona-color, var(--reactor));
+      box-shadow: 0 0 10px var(--persona-color, var(--reactor));
+    }
+    #personaChip .caret { color: var(--text-dim); font-size: 10px; margin-left: 4px; }
+    #personaMenu {
+      list-style: none;
+      margin: 6px 0 0; padding: 6px 0;
+      background: rgba(5, 8, 16, 0.92);
+      border: 1px solid var(--reactor-dim);
+      backdrop-filter: blur(10px);
+      min-width: 220px;
+      max-height: 60vh;
+      overflow-y: auto;
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+    }
+    #personaMenu[hidden] { display: none; }
+    #personaMenu li {
+      padding: 9px 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 11px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--text);
+      cursor: pointer;
+      transition: background 0.12s;
+    }
+    #personaMenu li:hover { background: rgba(20, 227, 255, 0.08); }
+    #personaMenu li.active { background: rgba(20, 227, 255, 0.14); }
+    /* Council multi-select state */
+    body.council-mode #personaMenu li { padding-right: 38px; position: relative; }
+    body.council-mode #personaMenu li::after {
+      content: ""; position: absolute; right: 14px; top: 50%; transform: translateY(-50%);
+      width: 14px; height: 14px; border: 1px solid var(--reactor-dim); background: rgba(5,8,16,0.6);
+    }
+    body.council-mode #personaMenu li.in-council::after {
+      background: var(--persona-color, var(--reactor));
+      border-color: var(--persona-color, var(--reactor));
+      box-shadow: 0 0 8px var(--persona-color, var(--reactor));
+    }
+    #personaMenu li .swatch { width: 8px; height: 8px; border-radius: 50%; box-shadow: 0 0 6px currentColor; }
+    #personaMenu li .meta { color: var(--text-faint); font-size: 9px; letter-spacing: 0.18em; margin-left: auto; }
+    #personaMenu li .clone-tag { color: var(--ember); font-size: 9px; letter-spacing: 0.15em; }
+
+    /* Tint orb ring-3 + core inner-glow with active persona color */
+    .ring-3 {
+      border-top-color: var(--persona-color, var(--reactor));
+      border-right-color: var(--persona-color, var(--reactor));
+    }
+    body.state-speaking .core {
+      box-shadow:
+        inset 0 0 60px var(--persona-color, var(--reactor)),
+        0 0 calc(40px + var(--mic-level) * 80px) var(--persona-color, var(--reactor-glow));
+    }
+
+    /* ---------- Dictation input ---------- */
+    .dictate {
+      display: flex;
+      align-items: stretch;
+      gap: 0;
+      min-width: 360px;
+      max-width: 520px;
+      flex: 1 1 360px;
+    }
+    #dictateInput {
+      flex: 1;
+      padding: 12px 14px;
+      background: rgba(5, 8, 16, 0.6);
+      border: 1px solid var(--reactor-dim);
+      border-right: none;
+      color: var(--text);
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 400;
+      font-size: 13px;
+      letter-spacing: 0.04em;
+      outline: none;
+      backdrop-filter: blur(6px);
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    #dictateInput::placeholder {
+      color: var(--text-faint);
+      letter-spacing: 0.18em;
+      font-size: 11px;
+      text-transform: uppercase;
+    }
+    #dictateInput:focus {
+      border-color: var(--reactor);
+      box-shadow: 0 0 24px rgba(20, 227, 255, 0.18);
+    }
+    #dictateSendBtn { min-width: 110px; }
+    @media (max-width: 1200px) {
+      .dictate { display: none; }
+    }
+
+    /* ---------- Glitch on state change ---------- */
+    body.glitch {
+      animation: glitch 0.35s steps(2) 1;
+    }
+    @keyframes glitch {
+      0%   { transform: translate(0); filter: none; }
+      20%  { transform: translate(-2px, 1px); filter: hue-rotate(-12deg); }
+      40%  { transform: translate(3px, -1px); filter: hue-rotate(10deg); }
+      60%  { transform: translate(-1px, 2px); filter: hue-rotate(-8deg); }
+      100% { transform: translate(0); filter: none; }
+    }
+
+    /* ---------- Responsive ---------- */
+    @media (max-width: 900px) {
+      :root { --orb-size: 60vmin; }
+      main {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto auto auto;
+        padding: 0 16px;
+      }
+      #mediaSlot, #messages { max-width: 100%; justify-self: stretch; }
+      #messages { max-height: 30vh; padding: 16px 0; }
+      .hud { font-size: 9px; letter-spacing: 0.12em; }
     }
   </style>
 </head>
-<body>
-  <div id="app">
-    <div class="chat-container">
-      <div class="header">
-        <!-- Centered “AI” text within the circle -->
-        <svg height="24" width="24" viewBox="0 0 22 22" fill="#fff" style="margin-right:8px">
-          <circle cx="11" cy="11" r="12" fill="#222F3D" />
-          <text
-            x="50%"
-            y="50%"
-            fill="#fff"
-            text-anchor="middle"
-            alignment-baseline="middle"
-            font-size="12"
-            font-family="Inter"
-          >AI</text>
-        </svg>
-        Real-Time Voice Chat
-        <span class="status" id="status"></span>
-      </div>
-      <div class="messages" id="messages"></div>
-      <div class="input-bar">
+<body class="state-idle">
 
-        <div class="speed-control">
-          <input type="range" id="speedSlider" min="0" max="100" value="0">
-          <div class="speed-labels">
-            <span>Fast</span>
-            <span>Slow</span>
-          </div>
-        </div>
+  <canvas id="particles"></canvas>
+  <div id="scan"></div>
+  <div id="grain"></div>
 
-        <br>
-
-        <button id="startBtn" title="Start voice chat" class="btn start-btn">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M8 5L8 19" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-            <path d="M8 5L18 12L8 19" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </button>
-        
-        <button id="stopBtn" title="Stop voice chat" class="btn stop-btn">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <rect x="6" y="6" width="12" height="12" rx="1" stroke="currentColor" stroke-width="2"/>
-          </svg>
-        </button>
-        
-        <button id="clearBtn" title="Reset conversation" class="btn reset-btn">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C14.8273 3 17.35 4.30367 19 6.34267" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-            <path d="M14.5 6.5L19.5 6.5L19.5 1.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </button> 
-
-        <button id="copyBtn" title="Copy conversation" class="btn copy-btn">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-           <rect x="9" y="9" width="11" height="11" rx="1" stroke="currentColor" stroke-width="2"/>
-           <path d="M5 15H4C3.44772 15 3 14.5523 3 14V4C3 3.44772 3.44772 3 4 3H14C14.5523 3 15 3.44772 15 4V5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-         </svg>
-       </button>
-
-      </div>
-    </div>
+  <!-- HUD CORNERS -->
+  <div class="hud hud-tl">
+    <span class="brk"></span>
+    <span class="row"><span class="label">CARRIER</span> <b>YETI-CLASSIC</b></span>
+    <span class="row"><span class="label">SR</span> 16000 Hz</span>
+    <span class="row"><span class="label">VAD</span> SILERO v4</span>
+    <span class="row"><span class="label">STT</span> WHISPER • BASE.EN</span>
   </div>
-  <script src="/static/app.js"></script>
+
+  <div class="hud hud-tr">
+    <span class="brk"></span>
+    <span class="row"><span class="label">LLM</span> <b id="hudLLM">CLAUDE-SONNET-4-6</b></span>
+    <span class="row"><span class="label">VOICE</span> <b id="hudVoice">—</b> · ELEVENLABS</span>
+    <span class="row"><span class="label">UTC</span> <span id="clock">--:--:--</span></span>
+    <span class="row"><span class="label">UPLINK</span> <em id="link">SECURE</em></span>
+  </div>
+
+  <div class="hud hud-bl">
+    <span class="brk"></span>
+    <span class="row"><span class="label">INPUT</span> <b id="micDb">-∞ dB</b></span>
+    <canvas id="waveform" width="220" height="40"></canvas>
+  </div>
+
+  <div class="hud hud-br">
+    <span class="brk"></span>
+    <span class="row"><span class="label">STATE</span> <b id="stateText">IDLE</b></span>
+    <span class="row"><span class="label">TURN</span> <b id="turnText">∞</b></span>
+    <span class="row"><span class="label">SESSION</span> <b id="sessionId">--</b></span>
+    <span class="row"><span class="label">SPEAKER</span> <b id="speakerText" style="color: var(--persona-color)">—</b></span>
+  </div>
+
+  <div id="title"><b>JARVIS</b> &nbsp;//&nbsp; PERSONA-CLASS INTERFACE</div>
+
+  <div id="personaPicker" aria-label="Persona picker">
+    <button id="personaChip" type="button" aria-haspopup="listbox" aria-expanded="false">
+      <span class="dot" id="personaDot"></span>
+      <span class="label" id="personaName">—</span>
+      <span class="caret">▾</span>
+    </button>
+    <ul id="personaMenu" role="listbox" hidden></ul>
+  </div>
+
+  <!-- STAGE -->
+  <div id="stage">
+    <div></div>
+    <main>
+      <!-- Media slot: image/video calls to screen here -->
+      <section id="mediaSlot" aria-label="Media slot">
+        <div class="holo-frame" id="visionFrame" hidden>
+          <video id="visionVideo" autoplay playsinline muted></video>
+          <div class="holo-caption"><span>VISION // LIVE</span><b id="visionMeta">— FPS</b></div>
+        </div>
+      </section>
+      <canvas id="visionCanvas" width="512" height="384" style="display:none"></canvas>
+
+      <!-- Orb -->
+      <div id="orb-wrap">
+        <div class="ring ring-tick"></div>
+        <div class="ring ring-1"></div>
+        <div class="ring ring-2"></div>
+        <div class="ring ring-3"></div>
+        <div class="ring ring-4"></div>
+        <div class="reticle"></div>
+        <div class="core"></div>
+        <canvas id="orbWave" width="200" height="200"></canvas>
+      </div>
+
+      <!-- Transcript -->
+      <aside id="messages" aria-live="polite"></aside>
+    </main>
+
+    <footer>
+      <div class="speed-control">
+        <span class="label">CADENCE</span>
+        <input type="range" id="speedSlider" min="0" max="100" value="0">
+        <div class="speed-labels"><span>RAPID</span><span>MEASURED</span></div>
+      </div>
+
+      <button id="startBtn" title="Start voice chat" class="btn start-btn">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M8 5L8 19" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M8 5L18 12L8 19" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        ENGAGE
+      </button>
+
+      <button id="visionBtn" title="Toggle webcam vision" class="btn" aria-pressed="false">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M2 8a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8z" stroke="currentColor" stroke-width="2"/><path d="M17 11l5-3v8l-5-3v-2z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+        EYES
+      </button>
+
+      <button id="councilBtn" title="Toggle council mode (multiple personas reply)" class="btn" aria-pressed="false">
+        <svg viewBox="0 0 24 24" fill="none"><circle cx="7" cy="8" r="3" stroke="currentColor" stroke-width="2"/><circle cx="17" cy="8" r="3" stroke="currentColor" stroke-width="2"/><path d="M2 20c0-2.8 2.2-5 5-5s5 2.2 5 5M12 20c0-2.8 2.2-5 5-5s5 2.2 5 5" stroke="currentColor" stroke-width="2"/></svg>
+        COUNCIL
+      </button>
+
+      <button id="stopBtn" title="Stop voice chat" class="btn stop-btn">
+        <svg viewBox="0 0 24 24" fill="none"><rect x="6" y="6" width="12" height="12" rx="1" stroke="currentColor" stroke-width="2"/></svg>
+        HALT
+      </button>
+
+      <button id="clearBtn" title="Reset conversation" class="btn reset-btn">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C14.8273 3 17.35 4.30367 19 6.34267" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M14.5 6.5L19.5 6.5L19.5 1.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        PURGE
+      </button>
+
+      <button id="copyBtn" title="Copy conversation" class="btn reset-btn">
+        <svg viewBox="0 0 24 24" fill="none"><rect x="8" y="8" width="12" height="12" rx="1" stroke="currentColor" stroke-width="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        EXFIL
+      </button>
+
+      <div class="dictate">
+        <input id="dictateInput" type="text" autocomplete="off" spellcheck="false" placeholder="〈 ` 〉 FOCUS  //  WIN+H DICTATE  //  ENTER TRANSMIT  //  ESC CLEAR" />
+        <button id="dictateSendBtn" class="btn" title="Transmit dictation">TRANSMIT</button>
+      </div>
+
+      <span id="status"></span>
+    </footer>
+  </div>
+
+  <div id="statusLabel">IDLE</div>
+
+  <script>
+    /* ============================================================
+     * JARVIS interface adapter — wraps the existing app.js plumbing
+     * with visual state, mic-level reactivity, particles, waveform,
+     * and the public window.jarvis.show() API for "calling to screen".
+     * ============================================================ */
+    (function () {
+      const root = document.documentElement.style;
+      const body = document.body;
+
+      /* ---- 1. Mic-level reactivity via wrapping getUserMedia ---- */
+      let analyser = null;
+      let micDataArr = null;
+      let orbWaveCtx = document.getElementById('orbWave').getContext('2d');
+      let waveCtx = document.getElementById('waveform').getContext('2d');
+      const origGUM = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      navigator.mediaDevices.getUserMedia = async function(constraints) {
+        const stream = await origGUM(constraints);
+        try {
+          const ctx = new (window.AudioContext || window.webkitAudioContext)();
+          const src = ctx.createMediaStreamSource(stream);
+          analyser = ctx.createAnalyser();
+          analyser.fftSize = 1024;
+          analyser.smoothingTimeConstant = 0.7;
+          src.connect(analyser);
+          micDataArr = new Uint8Array(analyser.frequencyBinCount);
+        } catch (e) { console.warn('[jarvis] mic analyser failed', e); }
+        return stream;
+      };
+
+      /* ---- 2a. Notification cue synth (Web Audio, no assets) ---- */
+      let cueCtx = null;
+      const ensureCueCtx = () => {
+        if (!cueCtx) cueCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (cueCtx.state === 'suspended') cueCtx.resume().catch(()=>{});
+        return cueCtx;
+      };
+      const cue = (kind) => {
+        try {
+          const ctx = ensureCueCtx();
+          const now = ctx.currentTime;
+          // Two-note glyphs: ascend for "you're heard", descend for "Sophia speaks"
+          const tones = {
+            heard:    [{f:660, d:0.06, t:0}, {f:990, d:0.10, t:0.05}],   // light ascending blip — finished listening
+            speak:    [{f:990, d:0.06, t:0}, {f:660, d:0.10, t:0.05}],   // descending — Sophia begins
+            engage:   [{f:520, d:0.08, t:0}, {f:780, d:0.08, t:0.07}, {f:1170,d:0.10,t:0.14}], // bootup chord
+            stop:     [{f:340, d:0.18, t:0}],                              // single low — halt
+            error:    [{f:220, d:0.18, t:0}, {f:160, d:0.22, t:0.10}],     // dropping
+          };
+          const seq = tones[kind] || tones.heard;
+          for (const n of seq) {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.value = n.f;
+            // Soft attack + exponential decay
+            gain.gain.setValueAtTime(0.0001, now + n.t);
+            gain.gain.exponentialRampToValueAtTime(0.18, now + n.t + 0.005);
+            gain.gain.exponentialRampToValueAtTime(0.0001, now + n.t + n.d);
+            // Stack a soft second harmonic for sci-fi tint
+            const h = ctx.createOscillator();
+            const hg = ctx.createGain();
+            h.type = 'sine'; h.frequency.value = n.f * 2;
+            hg.gain.setValueAtTime(0.0001, now + n.t);
+            hg.gain.exponentialRampToValueAtTime(0.06, now + n.t + 0.005);
+            hg.gain.exponentialRampToValueAtTime(0.0001, now + n.t + n.d);
+            osc.connect(gain).connect(ctx.destination);
+            h.connect(hg).connect(ctx.destination);
+            osc.start(now + n.t); osc.stop(now + n.t + n.d + 0.02);
+            h.start(now + n.t); h.stop(now + n.t + n.d + 0.02);
+          }
+        } catch (e) {}
+      };
+      window.jarvis = window.jarvis || {};
+      window.jarvis.cue = cue;
+
+      /* ---- 2. State machine + glitch on transition + cue ---- */
+      const setState = (s) => {
+        const cur = ['idle','listening','thinking','speaking'].find(x => body.classList.contains('state-' + x));
+        if (cur === s) return;
+        if (cur) body.classList.remove('state-' + cur);
+        body.classList.add('state-' + s);
+        body.classList.remove('glitch'); void body.offsetWidth; body.classList.add('glitch');
+        document.getElementById('stateText').textContent = s.toUpperCase();
+        // Auditory cues — fire on transitions only
+        if (cur === 'listening' && s === 'thinking') cue('heard');
+        else if (s === 'speaking' && cur !== 'speaking') cue('speak');
+        else if (s === 'listening' && cur === 'idle')  cue('engage');
+        else if (s === 'idle' && cur && cur !== 'idle') cue('stop');
+      };
+      window.jarvis.setState = setState;
+
+      /* ---- 3. Observe #status for state transitions ---- */
+      const statusEl = document.getElementById('status');
+      const statusLabel = document.getElementById('statusLabel');
+      const obs = new MutationObserver(() => {
+        const t = statusEl.textContent || '';
+        statusLabel.textContent = t || 'IDLE';
+        const lc = t.toLowerCase();
+        if (lc.includes('record')) setState('listening');
+        else if (lc.includes('connect') || lc.includes('init')) setState('listening');
+        else if (lc.includes('stop') || lc === '') setState('idle');
+        else if (lc.includes('error') || lc.includes('denied')) setState('idle');
+      });
+      obs.observe(statusEl, { childList: true, characterData: true, subtree: true });
+
+      /* ---- 4. Animation loop: mic level → CSS vars + waveform ---- */
+      const tts = { active: 0, target: 0 };
+      const draw = () => {
+        let level = 0;
+        if (analyser && micDataArr) {
+          analyser.getByteFrequencyData(micDataArr);
+          let sum = 0;
+          for (let i = 0; i < micDataArr.length; i++) sum += micDataArr[i];
+          const avg = sum / micDataArr.length;
+          level = Math.min(1, avg / 130);
+          // dB label
+          const db = avg > 1 ? (20 * Math.log10(avg / 255)).toFixed(0) : '-∞';
+          document.getElementById('micDb').textContent = db + ' dB';
+          // bottom waveform
+          waveCtx.clearRect(0, 0, 220, 40);
+          analyser.getByteTimeDomainData(micDataArr);
+          waveCtx.strokeStyle = '#14e3ff';
+          waveCtx.lineWidth = 1;
+          waveCtx.beginPath();
+          const step = 220 / micDataArr.length;
+          for (let i = 0; i < micDataArr.length; i++) {
+            const v = micDataArr[i] / 128.0;
+            const y = (v * 40) / 2 + 10;
+            if (i === 0) waveCtx.moveTo(i * step, y); else waveCtx.lineTo(i * step, y);
+          }
+          waveCtx.stroke();
+        }
+        // ease tts active
+        tts.active += (tts.target - tts.active) * 0.18;
+        root.setProperty('--mic-level', level.toFixed(3));
+        root.setProperty('--tts-active', tts.active.toFixed(3));
+        // orb-internal radial waveform
+        if (analyser && micDataArr && (body.classList.contains('state-listening') || body.classList.contains('state-speaking'))) {
+          analyser.getByteFrequencyData(micDataArr);
+          orbWaveCtx.clearRect(0, 0, 200, 200);
+          orbWaveCtx.strokeStyle = body.classList.contains('state-speaking') ? '#ff6b1a' : '#14e3ff';
+          orbWaveCtx.lineWidth = 1.2;
+          orbWaveCtx.globalAlpha = 0.85;
+          const bins = 96;
+          for (let i = 0; i < bins; i++) {
+            const v = micDataArr[(i * 3) % micDataArr.length] / 255;
+            const a = (i / bins) * Math.PI * 2;
+            const r0 = 40, r1 = 40 + v * 50;
+            orbWaveCtx.beginPath();
+            orbWaveCtx.moveTo(100 + Math.cos(a) * r0, 100 + Math.sin(a) * r0);
+            orbWaveCtx.lineTo(100 + Math.cos(a) * r1, 100 + Math.sin(a) * r1);
+            orbWaveCtx.stroke();
+          }
+          orbWaveCtx.globalAlpha = 1;
+        } else {
+          orbWaveCtx.clearRect(0, 0, 200, 200);
+        }
+        requestAnimationFrame(draw);
+      };
+      requestAnimationFrame(draw);
+
+      /* ---- 5. TTS playback start/stop signals from app.js ---- */
+      // app.js sends WS messages "TTS playback started/stopped" — we hook the WebSocket via patching send
+      // but the simplest: poll for the ttsWorkletNode events isn't reachable. Instead listen for any
+      // element class change OR add a global hook the rest of the app can call.
+      window.jarvis.ttsOn  = () => { tts.target = 1; setState('speaking'); };
+      window.jarvis.ttsOff = () => { tts.target = 0; setState(body.classList.contains('state-listening') ? 'listening' : 'idle'); };
+
+      // intercept ws messages by patching WebSocket
+      const NativeWS = window.WebSocket;
+      window.WebSocket = function(...a) {
+        const w = new NativeWS(...a);
+        window.__jarvisWS = w;
+        w.addEventListener('open', () => { window.__jarvisWS = w; });
+        w.addEventListener('close', () => { if (window.__jarvisWS === w) window.__jarvisWS = null; });
+        w.addEventListener('message', (ev) => {
+          try {
+            const m = JSON.parse(ev.data);
+            if (m.type === 'tts_chunk') { tts.target = 1; setState('speaking'); }
+            if (m.type === 'tts_interruption' || m.type === 'final_user_request') { tts.target = 0; }
+            if (m.type === 'partial_user_request' && m.content) {
+              // we're hearing the user — thinking is implied while their turn finalizes
+              if (body.classList.contains('state-speaking')) setState('listening');
+            }
+            if (m.type === 'partial_assistant_answer' && m.content) {
+              setState('thinking');
+            }
+            if (m.type === 'persona_list' && Array.isArray(m.payload)) {
+              window.jarvis._personas = m.payload;
+              window.jarvis._activeId = m.active_id || (m.payload.find(p => p.default) || m.payload[0] || {}).id;
+              if (window.jarvis.renderPersonas) window.jarvis.renderPersonas();
+              if (window.jarvis._onPersonaList) window.jarvis._onPersonaList();
+            }
+            if (m.type === 'active_persona' && m.payload) {
+              window.jarvis._activeId = m.payload.id;
+              if (window.jarvis.applyPersona) window.jarvis.applyPersona(m.payload);
+            }
+            if (m.type === 'vision_state' && window.jarvis.onVisionState) {
+              window.jarvis.onVisionState(!!m.on);
+            }
+            if (m.type === 'council_state' && m.payload) {
+              window.jarvis._council = m.payload;
+              document.body.classList.toggle('council-mode', !!m.payload.enabled);
+              const cBtn = document.getElementById('councilBtn');
+              if (cBtn) cBtn.setAttribute('aria-pressed', m.payload.enabled ? 'true' : 'false');
+              if (window.jarvis.renderPersonas) window.jarvis.renderPersonas();
+            }
+            if (m.type === 'active_speaker' && m.payload) {
+              // Active speaker = transient persona tint during council reply
+              if (window.jarvis.applyPersona) window.jarvis.applyPersona(m.payload);
+              const sp = document.getElementById('speakerText');
+              if (sp) sp.textContent = (m.payload.name || '—').toUpperCase();
+            }
+            if (m.type === 'jarvis_action' && m.payload) {
+              const a = m.payload;
+              if (a.clear === 'true' || a.clear === true) {
+                window.jarvis.clearMedia();
+              } else if (a.show && a.src) {
+                window.jarvis.show({
+                  type: a.show === 'video' ? 'video' : 'image',
+                  src: a.src,
+                  caption: a.caption || 'INCOMING TRANSMISSION',
+                  tag: a.tag || 'LIVE',
+                });
+              }
+            }
+          } catch(e){}
+        });
+        return w;
+      };
+      window.WebSocket.prototype = NativeWS.prototype;
+      window.WebSocket.CONNECTING = NativeWS.CONNECTING;
+      window.WebSocket.OPEN = NativeWS.OPEN;
+      window.WebSocket.CLOSING = NativeWS.CLOSING;
+      window.WebSocket.CLOSED = NativeWS.CLOSED;
+
+      /* ---- 6. Public API: call image/video to screen ---- */
+      window.jarvis.show = function({ type = 'image', src, caption = 'INCOMING TRANSMISSION', tag = 'LIVE' } = {}) {
+        const slot = document.getElementById('mediaSlot');
+        const frame = document.createElement('div');
+        frame.className = 'holo-frame';
+        const media = document.createElement(type === 'video' ? 'video' : 'img');
+        media.src = src;
+        if (type === 'video') { media.autoplay = true; media.muted = true; media.loop = true; media.playsInline = true; }
+        const cap = document.createElement('div');
+        cap.className = 'holo-caption';
+        cap.innerHTML = `<span>${caption}</span><b>${tag}</b>`;
+        frame.appendChild(media);
+        frame.appendChild(cap);
+        slot.appendChild(frame);
+        return frame;
+      };
+      window.jarvis.clearMedia = function() { document.getElementById('mediaSlot').innerHTML = ''; };
+
+      /* ---- 7. Clock ---- */
+      const clk = document.getElementById('clock');
+      const tick = () => {
+        const d = new Date();
+        const z = (n)=>String(n).padStart(2,'0');
+        clk.textContent = `${z(d.getUTCHours())}:${z(d.getUTCMinutes())}:${z(d.getUTCSeconds())}`;
+      };
+      tick(); setInterval(tick, 1000);
+
+      /* ---- 8. Session id ---- */
+      const sid = Math.random().toString(36).slice(2, 8).toUpperCase();
+      document.getElementById('sessionId').textContent = sid;
+
+      /* ---- 9. Particles ---- */
+      const pcv = document.getElementById('particles');
+      const pctx = pcv.getContext('2d');
+      let particles = [];
+      const resize = () => {
+        pcv.width = innerWidth * devicePixelRatio;
+        pcv.height = innerHeight * devicePixelRatio;
+        pcv.style.width = innerWidth + 'px';
+        pcv.style.height = innerHeight + 'px';
+        pctx.scale(devicePixelRatio, devicePixelRatio);
+        const count = Math.floor((innerWidth * innerHeight) / 24000);
+        particles = Array.from({ length: count }, () => ({
+          x: Math.random() * innerWidth,
+          y: Math.random() * innerHeight,
+          vx: (Math.random() - 0.5) * 0.18,
+          vy: (Math.random() - 0.5) * 0.18,
+          r: Math.random() * 1.5 + 0.3,
+          a: Math.random() * 0.6 + 0.1,
+        }));
+      };
+      resize();
+      addEventListener('resize', resize);
+      const pdraw = () => {
+        pctx.clearRect(0, 0, innerWidth, innerHeight);
+        for (const p of particles) {
+          p.x += p.vx; p.y += p.vy;
+          if (p.x < 0) p.x = innerWidth; if (p.x > innerWidth) p.x = 0;
+          if (p.y < 0) p.y = innerHeight; if (p.y > innerHeight) p.y = 0;
+          pctx.fillStyle = `rgba(20, 227, 255, ${p.a})`;
+          pctx.beginPath(); pctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); pctx.fill();
+        }
+        requestAnimationFrame(pdraw);
+      };
+      pdraw();
+
+      /* ---- 10. Dictation path (Typeless types here, Enter transmits) ---- */
+      const dictateInput = document.getElementById('dictateInput');
+      const dictateSendBtn = document.getElementById('dictateSendBtn');
+      const transmitDictation = () => {
+        const txt = (dictateInput.value || '').trim();
+        if (!txt) return;
+        const ws = window.__jarvisWS;
+        if (!ws || ws.readyState !== 1) { console.warn('[jarvis] no open WS for dictation — press ENGAGE first'); cue('error'); return; }
+        ws.send(JSON.stringify({ type: 'dictate_text', content: txt }));
+        // Echo into the transcript immediately
+        const bub = document.createElement('div');
+        bub.className = 'bubble user';
+        bub.textContent = txt;
+        document.getElementById('messages').appendChild(bub);
+        dictateInput.value = '';
+        ensureCueCtx(); cue('heard');
+        setState('thinking');
+      };
+      dictateInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); transmitDictation(); }
+        else if (e.key === 'Escape') { dictateInput.blur(); dictateInput.value = ''; }
+      });
+      dictateSendBtn.addEventListener('click', transmitDictation);
+
+      // Global hotkey: backtick (`) focuses the dictation input from anywhere on the page.
+      // After focusing, hit Win+H (or your Typeless trigger) to dictate, then Enter to send.
+      // Esc clears + blurs.
+      document.addEventListener('keydown', (e) => {
+        // Don't hijack when user is already typing in a field
+        const inField = (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable));
+        if (!inField && (e.key === '`' || e.key === '~')) {
+          e.preventDefault();
+          dictateInput.focus();
+          dictateInput.select();
+          // Pulse the field so the user sees the focus visually
+          dictateInput.style.boxShadow = '0 0 36px rgba(20, 227, 255, 0.45)';
+          setTimeout(() => { dictateInput.style.boxShadow = ''; }, 600);
+        }
+      });
+
+      /* ---- 10b. Persona picker wiring ---- */
+      const chipEl = document.getElementById('personaChip');
+      const nameEl = document.getElementById('personaName');
+      const dotEl  = document.getElementById('personaDot');
+      const menuEl = document.getElementById('personaMenu');
+
+      window.jarvis.applyPersona = (persona) => {
+        if (!persona) return;
+        document.documentElement.style.setProperty('--persona-color', persona.ring_color || 'var(--reactor)');
+        if (dotEl) dotEl.style.background = persona.ring_color || 'var(--reactor)';
+        if (nameEl) nameEl.textContent = persona.name + (persona.title ? ' · ' + persona.title : '');
+        // Update HUD voice + model
+        const hv = document.getElementById('hudVoice');
+        const hm = document.getElementById('hudLLM');
+        if (hv) hv.textContent = (persona.voice_name || persona.name).toUpperCase();
+        if (hm && persona.model) hm.textContent = persona.model.toUpperCase();
+        // Mark active in dropdown
+        menuEl.querySelectorAll('li').forEach(li => {
+          li.classList.toggle('active', li.dataset.id === persona.id);
+        });
+      };
+
+      // Persona selection queue — if WS is down when user clicks, we reconnect and replay
+      window.jarvis._pendingPersona = null;
+
+      const tryReconnectAndSend = (msg) => {
+        const ws = window.__jarvisWS;
+        if (ws && ws.readyState === 1) {
+          ws.send(JSON.stringify(msg));
+          return true;
+        }
+        // Stash the desired persona, then click ENGAGE which opens a fresh WS.
+        if (msg.type === 'set_persona') window.jarvis._pendingPersona = msg.persona;
+        const startBtn = document.getElementById('startBtn');
+        if (startBtn) startBtn.click();
+        return false;
+      };
+
+      // Whenever a fresh WS opens, flush any pending persona selection
+      const flushPending = () => {
+        if (!window.jarvis._pendingPersona) return;
+        const ws = window.__jarvisWS;
+        if (!ws || ws.readyState !== 1) return;
+        ws.send(JSON.stringify({ type: 'set_persona', persona: window.jarvis._pendingPersona }));
+        window.jarvis._pendingPersona = null;
+      };
+      // Re-check on the next persona_list arrival
+      window.jarvis._onPersonaList = flushPending;
+
+      window.jarvis.renderPersonas = () => {
+        const list = window.jarvis._personas || [];
+        const activeId = window.jarvis._activeId;
+        const council = window.jarvis._council || { enabled: false, members: [] };
+        const memberSet = new Set(council.members || []);
+        menuEl.innerHTML = list.map(p => `
+          <li role="option" data-id="${p.id}"
+              class="${p.id === activeId ? 'active' : ''} ${memberSet.has(p.id) ? 'in-council' : ''}"
+              style="--persona-color:${p.ring_color}">
+            <span class="swatch" style="background:${p.ring_color}; color:${p.ring_color}"></span>
+            <span class="name">${p.name}</span>
+            <span class="meta">${p.title || ''}</span>
+            ${p.voice_needs_clone ? '<span class="clone-tag">CLONE</span>' : ''}
+          </li>
+        `).join('');
+        menuEl.querySelectorAll('li').forEach(li => {
+          li.addEventListener('click', () => {
+            const id = li.dataset.id;
+            if (document.body.classList.contains('council-mode')) {
+              // Toggle membership
+              const cur = new Set((window.jarvis._council?.members) || []);
+              if (cur.has(id)) cur.delete(id); else cur.add(id);
+              const members = Array.from(cur);
+              tryReconnectAndSend({ type: 'set_council_members', members });
+              window.jarvis._council = { enabled: true, members };
+              window.jarvis.renderPersonas();  // re-render the swatches
+              return;
+            }
+            const ok = tryReconnectAndSend({ type: 'set_persona', persona: id });
+            menuEl.hidden = true;
+            chipEl.setAttribute('aria-expanded', 'false');
+            if (!ok) {
+              const p = list.find(x => x.id === id);
+              if (p) window.jarvis.applyPersona(p);
+            }
+          });
+        });
+        const active = list.find(p => p.id === activeId);
+        if (active) window.jarvis.applyPersona(active);
+        flushPending();
+      };
+
+      // Council toggle button + dictation routing
+      const councilBtn = document.getElementById('councilBtn');
+      councilBtn.addEventListener('click', () => {
+        const cur = window.jarvis._council || { enabled: false, members: [] };
+        const next = !cur.enabled;
+        tryReconnectAndSend({ type: 'set_council_mode', on: next });
+        // Optimistic UI
+        window.jarvis._council = { enabled: next, members: cur.members || [] };
+        document.body.classList.toggle('council-mode', next);
+        councilBtn.setAttribute('aria-pressed', next ? 'true' : 'false');
+        if (window.jarvis.renderPersonas) window.jarvis.renderPersonas();
+      });
+
+      // Override dictation send when council mode is on — route to council_run
+      const origTransmit = transmitDictation;
+      window.transmitDictation = () => {
+        const txt = (dictateInput.value || '').trim();
+        if (!txt) return;
+        const inCouncil = (window.jarvis._council?.enabled) && (window.jarvis._council?.members?.length || 0) > 0;
+        if (!inCouncil) return origTransmit();
+        const ws = window.__jarvisWS;
+        if (!ws || ws.readyState !== 1) { tryReconnectAndSend({ type: 'council_run', content: txt }); }
+        else { ws.send(JSON.stringify({ type: 'council_run', content: txt })); }
+        // Echo into transcript
+        const bub = document.createElement('div');
+        bub.className = 'bubble user';
+        bub.textContent = txt;
+        document.getElementById('messages').appendChild(bub);
+        dictateInput.value = '';
+        ensureCueCtx(); cue('heard');
+        setState('thinking');
+      };
+      // Rewire the bindings to the new transmitDictation
+      dictateInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          (window.transmitDictation || origTransmit)();
+        }
+      });
+      dictateSendBtn.addEventListener('click', () => (window.transmitDictation || origTransmit)());
+
+      chipEl.addEventListener('click', (e) => {
+        const open = !menuEl.hidden;
+        menuEl.hidden = open;
+        chipEl.setAttribute('aria-expanded', String(!open));
+      });
+      document.addEventListener('click', (e) => {
+        if (!chipEl.contains(e.target) && !menuEl.contains(e.target)) {
+          menuEl.hidden = true;
+          chipEl.setAttribute('aria-expanded', 'false');
+        }
+      });
+
+      /* ---- 10c. Vision intake (webcam → frames over WS) ---- */
+      const visionBtn = document.getElementById('visionBtn');
+      const visionFrame = document.getElementById('visionFrame');
+      const visionVideo = document.getElementById('visionVideo');
+      const visionCanvas = document.getElementById('visionCanvas');
+      const visionMeta = document.getElementById('visionMeta');
+      const visionCtx = visionCanvas.getContext('2d');
+      const VISION_PUSH_INTERVAL_MS = 2200;   // ~0.45 fps to keep token cost sane
+      const VISION_MAX_WIDTH = 512;
+      let visionStream = null;
+      let visionTimer = null;
+      let visionPushCount = 0;
+
+      const stopVision = () => {
+        if (visionTimer) { clearInterval(visionTimer); visionTimer = null; }
+        if (visionStream) { visionStream.getTracks().forEach(t => t.stop()); visionStream = null; }
+        visionFrame.hidden = true;
+        visionBtn.setAttribute('aria-pressed', 'false');
+        const ws = window.__jarvisWS;
+        if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'toggle_vision', on: false }));
+      };
+
+      const startVision = async () => {
+        try {
+          visionStream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' }, audio: false });
+          visionVideo.srcObject = visionStream;
+          await visionVideo.play();
+          visionFrame.hidden = false;
+          visionBtn.setAttribute('aria-pressed', 'true');
+          // Notify server
+          const ws = window.__jarvisWS;
+          if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'toggle_vision', on: true }));
+          // Push frames on interval
+          visionPushCount = 0;
+          visionTimer = setInterval(pushFrame, VISION_PUSH_INTERVAL_MS);
+          cue('engage');
+        } catch (e) {
+          console.warn('[jarvis vision] start failed:', e);
+          cue('error');
+          stopVision();
+        }
+      };
+
+      const pushFrame = () => {
+        if (!visionStream || !visionVideo.videoWidth) return;
+        const ws = window.__jarvisWS;
+        if (!ws || ws.readyState !== 1) return;
+        const vw = visionVideo.videoWidth, vh = visionVideo.videoHeight;
+        const ratio = Math.min(1, VISION_MAX_WIDTH / vw);
+        const w = Math.round(vw * ratio), h = Math.round(vh * ratio);
+        visionCanvas.width = w; visionCanvas.height = h;
+        visionCtx.drawImage(visionVideo, 0, 0, w, h);
+        // toDataURL → strip the "data:image/jpeg;base64," prefix
+        const dataUrl = visionCanvas.toDataURL('image/jpeg', 0.72);
+        const b64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+        ws.send(JSON.stringify({ type: 'vision_frame', content: b64 }));
+        visionPushCount++;
+        if (visionMeta) visionMeta.textContent = `${w}×${h} · #${visionPushCount}`;
+      };
+
+      visionBtn.addEventListener('click', () => {
+        if (visionStream) stopVision(); else startVision();
+      });
+
+      // Server confirmation handler — wire from the WS interceptor scope
+      window.jarvis.onVisionState = (on) => {
+        // Cosmetic; the toggle already handled UI. Mostly for logging.
+        if (!on && visionStream) stopVision();
+      };
+
+      /* ---- 11. Initial flourish ---- */
+      setTimeout(() => { body.classList.remove('glitch'); void body.offsetWidth; body.classList.add('glitch'); }, 700);
+    })();
+  </script>
+
+  <script src="static/app.js"></script>
 </body>
 </html>
