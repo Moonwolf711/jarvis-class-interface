@@ -1,9 +1,9 @@
 name: Phlo
 title: The Flow Whisperer
-# PLACEHOLDER VOICE — ElevenLabs library "Sarah" (mature, reassuring, confident).
-voice_id: EXAVITQu4vr4xnSDxMaL
-voice_name: "Sarah (library — Phlo stand-in)"
-voice_needs_clone: true
+# Tyler's cloned PHLO voice.
+voice_id: jRuydGhrpXASg5ISuP8V
+voice_name: "PHLO"
+voice_needs_clone: false
 model: claude-sonnet-4-6
 ring_color: "#14b8a6"
 order: 3

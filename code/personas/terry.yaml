@@ -1,10 +1,9 @@
 name: Terry
 title: The Earnest American
-# PLACEHOLDER VOICE — ElevenLabs library "Brian" (deep, resonant, comforting).
-# Replace with cloned Terry (WFL animation character, magenta) when ready.
-voice_id: nPczCjzI2devNBz1zQrb
-voice_name: "Brian (library — Terry stand-in)"
-voice_needs_clone: true
+# Tyler's cloned "Terry OMEGA" voice (WFL animation character).
+voice_id: S6JeNU6tAg86CVWV9QZG
+voice_name: "Terry OMEGA"
+voice_needs_clone: false
 model: claude-sonnet-4-6
 ring_color: "#ff00ff"
 order: 2

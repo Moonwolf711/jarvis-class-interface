@@ -1,10 +1,9 @@
 name: Nigel
 title: Distinguished Gentleman
-# PLACEHOLDER VOICE — ElevenLabs library "George" (warm storyteller). Replace
-# with a cloned Nigel (WFL animation character, cyan) when ready.
-voice_id: JBFqnCBsd6RMkjVDRZzb
-voice_name: "George (library — Nigel stand-in)"
-voice_needs_clone: true
+# Tyler's cloned "Nigel old" voice (WFL animation character).
+voice_id: NiKs4Dt6LzgyiBQJJa2y
+voice_name: "Nigel old"
+voice_needs_clone: false
 model: claude-sonnet-4-6
 ring_color: "#00ffff"
 order: 1

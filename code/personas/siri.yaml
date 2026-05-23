@@ -1,10 +1,9 @@
 name: Siri
 title: The Polite Assistant
-# PLACEHOLDER VOICE — ElevenLabs library "Alice" (clear, engaging educator).
-# Apple's Siri voice is proprietary; this is a neutral-feminine stand-in.
-voice_id: Xb7hH8MSUJpSbSDYk0k2
-voice_name: "Alice (library — Siri stand-in)"
-voice_needs_clone: true
+# Tyler's cloned SIRI voice.
+voice_id: 845tO05SM1rw1UE9eIFu
+voice_name: "SIRI"
+voice_needs_clone: false
 model: claude-sonnet-4-6
 ring_color: "#a3a3a3"
 order: 5
