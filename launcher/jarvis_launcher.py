@@ -9,6 +9,13 @@ import time
 import urllib.request
 from pathlib import Path
 
+# Force UTF-8 on stdout/stderr so box-drawing + emoji never crash on Windows cp1252.
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 
 URL = "http://localhost:8181/"
 BRAVE_PATHS = [
@@ -92,9 +99,9 @@ def open_brave(url: str) -> None:
 
 def main() -> int:
     print()
-    print("     ╭───────────────────────────────╮")
-    print("     │  JARVIS // PERSONA INTERFACE  │")
-    print("     ╰───────────────────────────────╯")
+    print("     +-------------------------------+")
+    print("     |  JARVIS // PERSONA INTERFACE  |")
+    print("     +-------------------------------+")
     print()
 
     try:
