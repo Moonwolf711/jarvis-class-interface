@@ -27,3 +27,6 @@ Thumbs.db
 # Local dev artifacts
 *.log
 *.pid
+launcher/JARVIS.exe
+launcher/build/
+launcher/__pycache__/
