@@ -22,7 +22,12 @@ BRAVE_PATHS = [
     r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe",
     r"C:\Program Files (x86)\BraveSoftware\Brave-Browser\Application\brave.exe",
 ]
+DOCKER_DESKTOP_PATHS = [
+    r"C:\Program Files\Docker\Docker\Docker Desktop.exe",
+    r"C:\Program Files (x86)\Docker\Docker\Docker Desktop.exe",
+]
 MAX_WAIT_SEC = 90
+DOCKER_BOOT_WAIT_SEC = 120
 
 
 def info(msg: str) -> None:
@@ -61,6 +66,34 @@ def docker_running() -> bool:
         return result.returncode == 0
     except Exception:
         return False
+
+
+def find_docker_desktop() -> str | None:
+    for p in DOCKER_DESKTOP_PATHS:
+        if Path(p).exists():
+            return p
+    return None
+
+
+def start_docker_desktop_and_wait(timeout_sec: int = DOCKER_BOOT_WAIT_SEC) -> bool:
+    """Launch Docker Desktop if it's installed but not running. Poll for daemon."""
+    dd = find_docker_desktop()
+    if not dd:
+        return False
+    info(f"starting Docker Desktop from {dd}")
+    try:
+        # detached — Docker Desktop manages its own tray icon
+        subprocess.Popen([dd], creationflags=0x00000008)  # DETACHED_PROCESS
+    except Exception as e:
+        info(f"could not launch Docker Desktop: {e}")
+        return False
+    info(f"waiting for docker daemon (max {timeout_sec}s)...")
+    deadline = time.time() + timeout_sec
+    while time.time() < deadline:
+        if docker_running():
+            return True
+        time.sleep(2)
+    return False
 
 
 def compose_up(root: Path) -> None:
@@ -113,10 +146,16 @@ def main() -> int:
     info(f"project root: {root}")
 
     if not docker_running():
-        info("FATAL: Docker Desktop is not running. Start it and try again.")
-        time.sleep(5)
-        return 1
-    info("docker engine OK")
+        info("Docker engine not responding — attempting to start Docker Desktop...")
+        if not start_docker_desktop_and_wait():
+            info("FATAL: could not bring Docker Desktop online.")
+            info("  - If Docker Desktop is installed, open it manually and retry.")
+            info("  - If it's not installed, get it from https://docker.com/products/docker-desktop")
+            time.sleep(8)
+            return 1
+        info("docker engine ready")
+    else:
+        info("docker engine OK")
 
     try:
         compose_up(root)
