@@ -5,9 +5,10 @@ title: The Computer-Use Agent
 voice_id: 845tO05SM1rw1UE9eIFu
 voice_name: "SIRI"
 voice_needs_clone: false
-# Brain: local qwen2.5:14b served over Ollama (set OLLAMA_BASE_URL in the
-# run script to point at the machine running it). General model = better spoken flow.
-model: qwen2.5:14b
+# Brain: local qwen2.5-coder:7b served over Ollama on the moonwolf laptop
+# (fedora @ 192.168.0.108, RTX 3070 — fits 8GB VRAM fully, 100% GPU). Set
+# OLLAMA_BASE_URL in the run script to point at it.
+model: qwen2.5-coder:7b
 ring_color: "#34d399"
 order: 6
 first_sentence_max_words: 10
