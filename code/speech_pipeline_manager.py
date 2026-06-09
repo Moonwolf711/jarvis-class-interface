@@ -951,9 +951,29 @@ class SpeechPipelineManager:
             # Strip non-LLM-known kwargs that some processors set as hints
             llm_kwargs.pop("clock_hint", None)
 
+            # Optional cross-conversation long-term memory recall (default OFF;
+            # inert unless JARVIS_LONGTERM_MEMORY=1). Injected here -- where
+            # history is built for the LLM -- rather than at the user-append
+            # seam, because the voice path snapshots history speculatively.
+            # Recalled context goes in its OWN transient system message on a
+            # COPY of history, so self.history (what gets stored) stays clean.
+            gen_history = self.history
+            try:
+                from memory_longterm import get_longterm_memory
+                _ltm = get_longterm_memory()
+                if _ltm is not None:
+                    _agent = None
+                    if self._persona_registry is not None:
+                        _agent = self._persona_registry.active_id
+                    _ctx = _ltm.recall_context(txt, agent=_agent)
+                    if _ctx:
+                        gen_history = [{"role": "system", "content": _ctx}] + list(self.history)
+            except Exception as _ltm_e:
+                logger.debug(f"🧠📚 long-term recall skipped: {_ltm_e}")
+
             self.running_generation.llm_generator = self.llm.generate(
                 text=txt,
-                history=self.history, # Pass current history
+                history=gen_history, # Pass current history (+ optional recalled context)
                 use_system_prompt=True,
                 **llm_kwargs,
             )

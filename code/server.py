@@ -964,6 +964,30 @@ class TranscriptionCallbacks:
         except Exception as _e:
             logger.warning(f"🖥️🌐 final-answer browser scan error: {_e}")
 
+        # Deterministic fallback for KNOWN sites: small local models often acknowledge
+        # ("Opening X now.") without emitting the tag. If no browser action fired this
+        # turn but the answer is an affirmative open of a known site, dispatch it anyway.
+        # Makes "open my <project>" reliable regardless of the model's tag discipline.
+        try:
+            if not getattr(self, "_browser_dispatched", None):
+                _low = final_answer.lower()
+                _affirm = any(w in _low for w in ("open", "launch", "pull up", "pulling up", "go to", "going to", "navigat")) \
+                    and not any(w in _low for w in ("can't", "cannot", "unable", "don't have", "not able", "couldn't"))
+                if _affirm:
+                    _known = [
+                        (("wavdrop", "wav drop", "wav-drop"), "https://app.wav-drop.com"),
+                        (("genealogy", "gens", "atlas", "ancestry"), "https://gens-yianacopolus.netlify.app"),
+                        (("spartan scout", "scout"), "https://spartan-scout.netlify.app"),
+                        (("jarvis orb", "the orb"), "https://192.168.0.83:8000"),
+                    ]
+                    for _keys, _url in _known:
+                        if any(k in _low for k in _keys):
+                            logger.info(f"🖥️🌐↩️ deterministic known-site fallback (model omitted tag) -> {_url}")
+                            self.on_jarvis_action({"browser": "open", "url": _url})
+                            break
+        except Exception as _e:
+            logger.warning(f"🖥️🌐 known-site fallback error: {_e}")
+
         if not self.final_assistant_answer_sent and final_answer:
             import re
             # Clean up the final answer text
@@ -981,6 +1005,27 @@ class TranscriptionCallbacks:
                 app.state.SpeechPipelineManager.history.append({"role": "assistant", "content": cleaned_answer})
                 self.final_assistant_answer_sent = True
                 self.final_assistant_answer = cleaned_answer # Store the sent answer
+
+                # Optional cross-conversation long-term memory (default OFF;
+                # inert unless JARVIS_LONGTERM_MEMORY=1). Persist the finished
+                # (user, assistant) exchange. Never raises into the turn.
+                try:
+                    from memory_longterm import get_longterm_memory
+                    _ltm = get_longterm_memory()
+                    if _ltm is not None:
+                        _hist = app.state.SpeechPipelineManager.history
+                        _user_msg = next(
+                            (m.get("content", "") for m in reversed(_hist[:-1])
+                             if m.get("role") == "user"), "")
+                        _agent = None
+                        try:
+                            from persona_registry import registry as _pr
+                            _agent = _pr.active_id
+                        except Exception:
+                            pass
+                        _ltm.store_turn(_user_msg, cleaned_answer, agent=_agent)
+                except Exception as _ltm_e:
+                    logger.debug(f"🧠📚 long-term store skipped: {_ltm_e}")
             else:
                 logger.warning(f"🖥️⚠️ {Colors.YELLOW}Final assistant answer was empty after cleaning.{Colors.RESET}")
                 self.final_assistant_answer_sent = False # Don't mark as sent
