@@ -28,7 +28,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.responses import HTMLResponse, Response, FileResponse
 
 USE_SSL = os.getenv("USE_SSL", "0") == "1"
-TTS_START_ENGINE = "elevenlabs"
+TTS_START_ENGINE = os.getenv("TTS_ENGINE", "elevenlabs")  # "miso" enables local MisoTTS output
 TTS_ORPHEUS_MODEL = "orpheus-3b-0.1-ft-Q8_0-GGUF/orpheus-3b-0.1-ft-q8_0.gguf"
 
 LLM_START_PROVIDER = os.getenv("LLM_PROVIDER", "ollama")

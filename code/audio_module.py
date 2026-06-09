@@ -62,6 +62,7 @@ ENGINE_SILENCES = {
     "kokoro":     Silence(comma=0.3, sentence=0.6, default=0.3),
     "orpheus":    Silence(comma=0.3, sentence=0.6, default=0.3),
     "elevenlabs": Silence(comma=0.2, sentence=0.4, default=0.2),
+    "miso":       Silence(comma=0.3, sentence=0.6, default=0.3),
 }
 # Stream chunk sizes influence latency vs. throughput trade-offs
 QUICK_ANSWER_STREAM_CHUNK_SIZE = 8
@@ -131,6 +132,22 @@ class AudioProcessor:
             engine: The name of the TTS engine to use ("coqui", "kokoro", "orpheus").
             orpheus_model: The path or identifier for the Orpheus model file (used only if engine is "orpheus").
         """
+        # --- Optional local MisoTTS output backend (additive, OFF by default) ---
+        # Mirrors the Parakeet STT gate: only when TTS_ENGINE=miso. Miso loads once
+        # (warm), so its fallback is here at construction time -- on any failure we
+        # rewrite `engine` to the existing default below and never break audio out.
+        self._miso_engine = None  # type: ignore[var-annotated]
+        if engine == "miso":
+            try:
+                from tts_miso import build_miso_engine
+                self._miso_engine = build_miso_engine()
+            except Exception as exc:
+                logger.error(f"👄🌸 Failed to import MisoTTS backend, falling back: {exc}")
+            if self._miso_engine is None:
+                fallback = os.getenv("MISO_FALLBACK_ENGINE", START_ENGINE)
+                logger.warning(f"👄🌸 MisoTTS unavailable -- falling back to '{fallback}' engine.")
+                engine = fallback
+
         self.engine_name = engine
         self.stop_event = threading.Event()
         self.finished_event = threading.Event()
@@ -193,6 +210,10 @@ class AudioProcessor:
                 clarity=0.75,
                 style_exxageration=0.4,
             )
+        elif engine == "miso":
+            # Reached only when build_miso_engine() succeeded above (otherwise
+            # `engine` was rewritten to the fallback and this branch is skipped).
+            self.engine = self._miso_engine
         else:
             raise ValueError(f"Unsupported engine: {engine}")
 
