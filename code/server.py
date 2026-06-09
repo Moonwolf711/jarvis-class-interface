@@ -832,12 +832,44 @@ class TranscriptionCallbacks:
                 })
 
     def on_jarvis_action(self, attrs: dict):
-        """Forward a <jarvis .../> action from Sophia's stream to the browser as a WS message."""
+        """Handle a <jarvis .../> action from the LLM stream. A `browser=` attr is
+        executed against the user's real Brave via the Clicky executor (env-configured,
+        runs on the Owner PC since Chromium refuses remote CDP). All actions are also
+        forwarded to the orb UI for display."""
         logger.info(f"🖥️🎬 JARVIS ACTION: {attrs}")
+        if attrs.get("browser"):
+            self._dispatch_browser_action(attrs)
         self.message_queue.put_nowait({
             "type": "jarvis_action",
             "payload": attrs,
         })
+
+    def _dispatch_browser_action(self, attrs: dict):
+        """Fire-and-forget POST to the Clicky browser executor. Non-blocking so the
+        TTS pipeline never stalls. No-op (logged) if CLICKY_EXECUTOR_URL is unset, so
+        the token/endpoint live only in the run-script env, never in the repo."""
+        import os as _os
+        url = _os.getenv("CLICKY_EXECUTOR_URL")
+        if not url:
+            logger.warning("🖥️🌐 browser action requested but CLICKY_EXECUTOR_URL unset — skipping")
+            return
+        import threading, json as _json, urllib.request
+        token = _os.getenv("CLICKY_BROWSER_TOKEN", "")
+        payload = {"action": attrs.get("browser"), "url": attrs.get("url"),
+                   "selector": attrs.get("selector"), "text": attrs.get("text")}
+
+        def _go():
+            try:
+                req = urllib.request.Request(
+                    url, data=_json.dumps(payload).encode(),
+                    headers={"Content-Type": "application/json", "X-Clicky-Token": token},
+                    method="POST")
+                with urllib.request.urlopen(req, timeout=20) as r:
+                    logger.info(f"🖥️🌐 browser '{payload['action']}' -> {r.read()[:200]}")
+            except Exception as e:
+                logger.warning(f"🖥️🌐💥 browser executor error: {e}")
+
+        threading.Thread(target=_go, daemon=True).start()
 
     def on_recording_start(self):
         """
