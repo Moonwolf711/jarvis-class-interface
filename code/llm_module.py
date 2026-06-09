@@ -67,6 +67,15 @@ except ImportError:
     logger.debug("🤖💥 Error importing dotenv, skipping .env load.")
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+# Allow pointing the OpenAI-compatible backend at any base URL (OpenRouter, etc.)
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL")
+# Only attach camera frames to OpenAI-compatible requests when the model is
+# multimodal. Default off — most OpenRouter text models reject image input.
+OPENAI_VISION = os.getenv("OPENAI_VISION", "0") == "1"
+# 'claude' backend: run the user's full Claude Code (files, bash, all projects)
+# on their PC over SSH, using their OAuth login. SSH target e.g. "Owner@192.168.0.3".
+CLAUDE_BRIDGE_SSH = os.getenv("CLAUDE_BRIDGE_SSH", "Owner@192.168.0.3")
+CLAUDE_BRIDGE_TIMEOUT = int(os.getenv("CLAUDE_BRIDGE_TIMEOUT", "120"))
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
 LMSTUDIO_BASE_URL = os.getenv("LMSTUDIO_BASE_URL", "http://127.0.0.1:1234/v1")
 
@@ -198,7 +207,7 @@ class LLM:
     Handles client initialization, streaming generation, request cancellation,
     system prompts, and basic connection management including an optional `ollama ps` check.
     """
-    SUPPORTED_BACKENDS = ["ollama", "openai", "lmstudio", "anthropic"]
+    SUPPORTED_BACKENDS = ["ollama", "openai", "lmstudio", "anthropic", "claude"]
 
     def __init__(
         self,
@@ -256,7 +265,7 @@ class LLM:
         self.effective_openai_key = self._api_key or OPENAI_API_KEY
         self.effective_ollama_url = self._base_url or OLLAMA_BASE_URL if self.backend == "ollama" else None
         self.effective_lmstudio_url = self._base_url or LMSTUDIO_BASE_URL if self.backend == "lmstudio" else None
-        self.effective_openai_base_url = self._base_url if self.backend == "openai" and self._base_url else None
+        self.effective_openai_base_url = (self._base_url or OPENAI_BASE_URL) if self.backend == "openai" else None
 
         if self.backend == "ollama" and self.effective_ollama_url:
              url = self.effective_ollama_url
@@ -304,7 +313,9 @@ class LLM:
             self._ollama_connection_ok = False # Reset Ollama specific flag
 
             try:
-                if self.backend == "openai":
+                if self.backend == "claude":
+                    init_ok = True  # No persistent client; each turn shells out via SSH.
+                elif self.backend == "openai":
                     self.client = _create_openai_client(self.effective_openai_key, base_url=self.effective_openai_base_url)
                     init_ok = self.client is not None
                 elif self.backend == "anthropic":
@@ -518,6 +529,9 @@ class LLM:
             True if the prewarm generation completed successfully (even with no content),
             False if initialization or generation failed after retries.
         """
+        if self.backend == "claude":
+            logger.info("🤖🔥 Skipping prewarm for 'claude' backend (each turn is a full agent run).")
+            return True
         prompt = "Respond with only the word 'OK'."
         logger.info(f"🤖🔥 Attempting prewarm for '{self.model}' on backend '{self.backend}'...")
 
@@ -612,6 +626,64 @@ class LLM:
         logger.error(f"🤖🔥💥 Prewarm failed after exhausting retries. Last error: {last_error}")
         return False
 
+    def _run_claude_bridge(self, text: str, req_id: str) -> Generator[str, None, None]:
+        """The 'claude' backend: run the user's full Claude Code on their PC over SSH.
+
+        Gives the voice agent the entire Claude Code toolset (files, bash, every
+        project) under their OAuth login. The empty ANTHROPIC_API_KEY on the box is
+        cleared inline so claude falls back to the OAuth credentials. Captures the
+        final answer and yields it for TTS. Uses --continue for conversational
+        memory, retrying once without it on the first (no-prior-conversation) call.
+        """
+        # Fresh one-shot each turn. NO --continue: in the user's home dir it would
+        # collide with any live `claude` session there and hang. Each turn is
+        # independent; bypassPermissions + absolute paths still reach every project.
+        #
+        # The prompt is base64'd into a PowerShell command and piped to claude
+        # LOCALLY on the user's PC. SSH-forwarded stdin is unreliable (claude aborts
+        # after waiting 3s for stdin that hasn't arrived over the link); a local pipe
+        # delivers it instantly. base64 also sidesteps all shell-quoting + Unicode.
+        import base64
+        b64 = base64.b64encode(text.encode("utf-8")).decode("ascii")
+        # Decode the prompt locally and pass it as a single ARGUMENT (PowerShell does
+        # not word-split a variable), not via stdin — claude aborts waiting on an SSH
+        # stdin EOF that never arrives. --strict-mcp-config skips MCP-server startup.
+        ps = ("$env:ANTHROPIC_API_KEY=$null; "
+              f"$p=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{b64}')); "
+              "claude --print --permission-mode bypassPermissions --strict-mcp-config -- $p")
+        remote_cmd = f'powershell -NoProfile -Command "{ps}"'
+        argv = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", CLAUDE_BRIDGE_SSH, remote_cmd]
+
+        logger.info(f"🤖🌉 [{req_id}] Running claude bridge ({CLAUDE_BRIDGE_SSH}, timeout {CLAUDE_BRIDGE_TIMEOUT}s)...")
+        proc = subprocess.Popen(
+            argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding="utf-8", errors="replace",
+        )
+        self._register_request(req_id, "claude", proc)
+        timed_out = False
+        try:
+            out, err = proc.communicate(timeout=CLAUDE_BRIDGE_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.communicate()
+            timed_out = True
+            out, err = "", "timeout"
+            logger.error(f"🤖🌉⏱️ [{req_id}] claude bridge timed out after {CLAUDE_BRIDGE_TIMEOUT}s.")
+        finally:
+            self.cancel_generation(req_id)
+
+        out = (out or "").strip()
+        if timed_out:
+            yield "That one's taking a while - give me a smaller step and I'll get right on it."
+            return
+        if not out:
+            logger.error(f"🤖🌉💥 [{req_id}] claude bridge no output. err={(err or '')[:200]}")
+            yield "Sorry, I couldn't reach my tools just now."
+            return
+
+        logger.info(f"🤖🌉✅ [{req_id}] claude bridge returned {len(out)} chars.")
+        yield out
+
     def generate(
         self,
         text: str,
@@ -677,6 +749,24 @@ class LLM:
             if self.backend == "openai":
                 if self.client is None:
                     raise RuntimeError("OpenAI client not initialized (should have been caught by lazy_init).")
+                # Vision: only fold the camera frame in if the model accepts image input.
+                # Text-only OpenRouter models (e.g. owl-alpha) reject image_url content
+                # ("No endpoints found that support image input"), and the OpenAI SDK
+                # rejects a bare image_b64 kwarg outright — so strip it for those.
+                image_b64 = kwargs.pop("image_b64", None)
+                image_media_type = kwargs.pop("image_media_type", "image/jpeg")
+                if image_b64 and OPENAI_VISION and messages and messages[-1].get("role") == "user":
+                    last_text = messages[-1].get("content", "")
+                    if not isinstance(last_text, str):
+                        last_text = ""
+                    messages[-1] = {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": last_text or "What do you see?"},
+                            {"type": "image_url", "image_url": {"url": f"data:{image_media_type};base64,{image_b64}"}},
+                        ],
+                    }
+                    logger.info(f"🤖👁️ [{req_id}] Attaching vision frame ({len(image_b64)} b64 chars)")
                 payload = { "model": self.model, "messages": messages, "stream": True, **kwargs }
                 logger.info(f"🤖💬 [{req_id}] Sending OpenAI request with payload:")
                 logger.info(f"{json.dumps(payload, indent=2)}")
@@ -686,6 +776,9 @@ class LLM:
                 stream_object_to_register = stream_iterator # The Stream object itself
                 self._register_request(req_id, "openai", stream_object_to_register)
                 yield from self._yield_openai_chunks(stream_iterator, req_id)
+
+            elif self.backend == "claude":
+                yield from self._run_claude_bridge(text, req_id)
 
             elif self.backend == "lmstudio":
                 if self.client is None:
@@ -1047,6 +1140,8 @@ class LLM:
             produced (up to `num_tokens`), or None if generation failed, produced 0 tokens,
             or encountered an error during initialization or generation.
         """
+        if self.backend == "claude":
+            return 3000.0  # Agentic turns are highly variable; report a nominal latency.
         if num_tokens <= 0:
             logger.warning("🤖⏱️ Cannot measure inference time for 0 or negative tokens.")
             return None

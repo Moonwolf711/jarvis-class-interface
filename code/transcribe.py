@@ -25,7 +25,7 @@ START_STT_SERVER = False # Set to True to use the client/server version of Realt
 DEFAULT_RECORDER_CONFIG: Dict[str, Any] = {
     "use_microphone": False,
     "spinner": False,
-    "model": "small.en",
+    "model": "medium.en",
     "realtime_model_type": "small.en",
     "use_main_model_for_realtime": False,
     "language": "en", # Default, will be overridden by source_language in __init__
@@ -34,7 +34,7 @@ DEFAULT_RECORDER_CONFIG: Dict[str, Any] = {
     "post_speech_silence_duration": 0.7,
     "min_length_of_recording": 0.5,
     "min_gap_between_recordings": 0,
-    "enable_realtime_transcription": False,
+    "enable_realtime_transcription": True,
     "realtime_processing_pause": 0.03,
     "silero_use_onnx": True,
     "silero_deactivity_detection": True,

@@ -27,12 +27,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.responses import HTMLResponse, Response, FileResponse
 
-USE_SSL = False
+USE_SSL = os.getenv("USE_SSL", "0") == "1"
 TTS_START_ENGINE = "elevenlabs"
 TTS_ORPHEUS_MODEL = "orpheus-3b-0.1-ft-Q8_0-GGUF/orpheus-3b-0.1-ft-q8_0.gguf"
 
-LLM_START_PROVIDER = "anthropic"
-LLM_START_MODEL = os.getenv("LLM_MODEL", "claude-sonnet-4-6")
+LLM_START_PROVIDER = os.getenv("LLM_PROVIDER", "ollama")
+LLM_START_MODEL = os.getenv("LLM_MODEL", "llama3.1:8b")
 NO_THINK = False
 DIRECT_STREAM = TTS_START_ENGINE=="orpheus"
 
@@ -317,6 +317,7 @@ async def process_incoming_data(ws: WebSocket, app: FastAPI, incoming_chunks: as
                         await ws.send_json({"type": "final_user_request", "content": txt})
                         callbacks.final_transcription = txt
                         callbacks.partial_transcription = txt
+                        callbacks.tts_to_client = True  # release server→client audio/partials (mirrors on_final, see line 747)
                         app.state.SpeechPipelineManager.history.append({"role": "user", "content": txt})
                         app.state.SpeechPipelineManager.prepare_generation(txt)
                 elif msg_type == "set_persona":
@@ -1028,8 +1029,8 @@ if __name__ == "__main__":
     else:
         logger.info("🖥️🔒 Attempting to start server with SSL.")
         # Check if cert files exist
-        cert_file = "127.0.0.1+1.pem"
-        key_file = "127.0.0.1+1-key.pem"
+        cert_file = os.getenv("SSL_CERTFILE", "jarvis-haven.pem")
+        key_file = os.getenv("SSL_KEYFILE", "jarvis-haven-key.pem")
         if not os.path.exists(cert_file) or not os.path.exists(key_file):
              logger.error(f"🖥️💥 SSL cert file ({cert_file}) or key file ({key_file}) not found.")
              logger.error("🖥️💥 Please generate them using mkcert:")
