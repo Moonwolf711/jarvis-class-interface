@@ -7,7 +7,7 @@ REM  Auto-picks: fedora (moonwolf laptop) first, then TheHAVEN.
 REM  Mirrors haven_run.bat; only the brain location/model differ.
 REM ============================================================
 
-set "MODEL=qwen2.5-coder:7b"
+set "MODEL=qwen2.5:14b"
 REM Candidate Ollama hosts, in preference order (this box is on 192.168.0.x):
 REM   192.168.0.108  -> ssh "fedora", user moonwolf  (the moonwolf laptop)
 REM   192.168.0.83   -> ssh "haven", RTX 3080        (always-on GPU fallback)
