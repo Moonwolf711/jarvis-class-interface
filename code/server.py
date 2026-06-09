@@ -643,6 +643,7 @@ class TranscriptionCallbacks:
         self.last_inferred_transcription = ""
         self.final_assistant_answer_sent = False
         self.partial_transcription = ""
+        self._browser_dispatched = set()  # per-turn <jarvis browser=..> dedup (streaming + final scan)
 
         # Keep the abort call related to the audio processor/pipeline manager
         self.app.state.AudioInputProcessor.abort_generation()
@@ -819,7 +820,7 @@ class TranscriptionCallbacks:
         """
         # Strip any <jarvis .../> tags from what we show in transcript (TTS path strips them too)
         import re
-        clean = re.sub(r"<\s*jarvis\b[^/>]*/?\s*>", "", txt)
+        clean = re.sub(r"<\s*jarvis\b[^>]*?/?\s*>", "", txt)
         logger.info(f"{Colors.apply('🖥️💬 PARTIAL ASSISTANT ANSWER: ').green}{clean}")
         # Use connection-specific user_interrupted flag
         if not self.user_interrupted:
@@ -838,6 +839,16 @@ class TranscriptionCallbacks:
         forwarded to the orb UI for display."""
         logger.info(f"🖥️🎬 JARVIS ACTION: {attrs}")
         if attrs.get("browser"):
+            # Dedup: the streaming tag-parser is unreliable across chunk boundaries,
+            # so send_final_assistant_answer also scans the complete text. Track
+            # dispatched browser actions per-turn so we fire each exactly once.
+            sig = (attrs.get("browser"), attrs.get("url"), attrs.get("selector"), attrs.get("text"))
+            seen = getattr(self, "_browser_dispatched", None)
+            if seen is None:
+                seen = self._browser_dispatched = set()
+            if sig in seen:
+                return
+            seen.add(sig)
             self._dispatch_browser_action(attrs)
         self.message_queue.put_nowait({
             "type": "jarvis_action",
@@ -940,6 +951,18 @@ class TranscriptionCallbacks:
                 return# Nothing to send
 
         logger.debug(f"🖥️✅ Attempting to send final answer: '{final_answer}' (Sent previously: {self.final_assistant_answer_sent})")
+
+        # Reliable browser-action dispatch: scan the COMPLETE answer for <jarvis browser=.../>
+        # tags. The streaming tag-parser misses them across chunk boundaries; on_jarvis_action
+        # dedups per-turn so this never double-fires with the streaming path.
+        try:
+            import re as _re
+            for _m in _re.finditer(r"<\s*jarvis\b([^>]*?)/?\s*>", final_answer, _re.IGNORECASE):
+                _attrs = {k.lower(): v for k, v in _re.findall(r'(\w+)\s*=\s*"([^"]*)"', _m.group(1))}
+                if _attrs.get("browser"):
+                    self.on_jarvis_action(_attrs)
+        except Exception as _e:
+            logger.warning(f"🖥️🌐 final-answer browser scan error: {_e}")
 
         if not self.final_assistant_answer_sent and final_answer:
             import re

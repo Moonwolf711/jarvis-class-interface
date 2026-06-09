@@ -368,7 +368,7 @@ class SpeechPipelineManager:
 
     # Jarvis inline-tag protocol — Sophia emits <jarvis show="image" src="URL" caption="..." tag="..."/>
     # and we strip the tag from the spoken audio, fire on_jarvis_action with parsed attrs.
-    _JARVIS_TAG_RE = __import__("re").compile(r"<\s*jarvis\b([^/>]*)/?\s*>", __import__("re").IGNORECASE)
+    _JARVIS_TAG_RE = __import__("re").compile(r"<\s*jarvis\b([^>]*?)/?\s*>", __import__("re").IGNORECASE)
     _JARVIS_ATTR_RE = __import__("re").compile(r'(\w+)\s*=\s*"([^"]*)"')
 
     def _strip_jarvis_tags(self, chunk: str) -> str:
