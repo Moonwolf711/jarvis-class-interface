@@ -163,13 +163,13 @@ class TranscriptionProcessor:
         self.parakeet = None  # type: ignore[var-annotated]
         if os.getenv("STT_FINAL_ENGINE", "whisper").strip().lower() == "parakeet":
             try:
-                from stt_parakeet import ParakeetTranscriber
-                candidate = ParakeetTranscriber.from_env()
-                if candidate.is_available():
+                from stt_parakeet import build_parakeet_backend
+                candidate = build_parakeet_backend()  # C-API if available, else CLI
+                if candidate is not None:
                     self.parakeet = candidate
-                    logger.info(f"👂🦜 {Colors.YELLOW}Parakeet final-transcription backend enabled{Colors.RESET}")
+                    logger.info(f"👂🦜 {Colors.YELLOW}Parakeet final-transcription backend enabled ({type(candidate).__name__}){Colors.RESET}")
                 else:
-                    logger.warning("👂🦜 STT_FINAL_ENGINE=parakeet but backend unavailable; using whisper finals.")
+                    logger.warning("👂🦜 STT_FINAL_ENGINE=parakeet but no backend available; using whisper finals.")
             except Exception as exc:
                 logger.error(f"👂🦜 Failed to init Parakeet backend, using whisper: {exc}")
 

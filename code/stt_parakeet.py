@@ -191,3 +191,31 @@ class ParakeetTranscriber:
             wf.setframerate(SAMPLE_RATE)
             wf.writeframes(pcm.tobytes())
         return path
+
+
+def build_parakeet_backend(backend: Optional[str] = None):
+    """Return an available Parakeet STT backend, or None.
+
+    Both backends duck-type the same interface: ``is_available() -> bool`` and
+    ``transcribe(audio_f32) -> Optional[str]``.
+
+    backend (or env PARAKEET_BACKEND):
+      "auto" (default) -- prefer the warm C-API binding (load once, fast),
+                          fall back to the subprocess CLI (per-call reload).
+      "capi"           -- C-API only.
+      "cli"            -- subprocess CLI only.
+    """
+    backend = (backend or os.getenv("PARAKEET_BACKEND", "auto")).strip().lower()
+    candidates = []
+    if backend in ("auto", "capi"):
+        try:
+            from parakeet_capi import ParakeetCAPI
+            candidates.append(ParakeetCAPI.from_env())
+        except Exception as exc:
+            logger.error("👂🦜 Could not import C-API backend: %s", exc)
+    if backend in ("auto", "cli"):
+        candidates.append(ParakeetTranscriber.from_env())
+    for candidate in candidates:
+        if candidate.is_available():
+            return candidate
+    return None

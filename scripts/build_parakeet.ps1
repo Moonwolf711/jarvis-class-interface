@@ -21,11 +21,16 @@
 .PARAMETER Cuda
     Build the CUDA GPU backend (requires MSVC + NVIDIA CUDA Toolkit).
 
+.PARAMETER Shared
+    Also build libparakeet (shared lib) into build-shared/ for the phase-2
+    ctypes C-API path (code/parakeet_capi.py) -- the warm, load-once backend.
+
 .EXAMPLE
-    pwsh scripts/build_parakeet.ps1
-    pwsh scripts/build_parakeet.ps1 -Cuda
+    pwsh scripts/build_parakeet.ps1                 # CLI only (quality probe)
+    pwsh scripts/build_parakeet.ps1 -Shared         # + libparakeet for the C-API
+    pwsh scripts/build_parakeet.ps1 -Shared -Cuda   # GPU
 #>
-param([switch]$Cuda)
+param([switch]$Cuda, [switch]$Shared)
 
 $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
@@ -59,10 +64,31 @@ if (-not (Test-Path $bin)) {
 }
 
 if (Test-Path $bin) {
-    Write-Host "`n==> Built: $bin" -ForegroundColor Green
-    Write-Host "Set this in Jarvis if it is not the default location:" -ForegroundColor Green
+    Write-Host "`n==> Built CLI: $bin" -ForegroundColor Green
+    Write-Host "    (subprocess path: quality probe, reloads model per call)" -ForegroundColor Gray
     Write-Host "    `$env:PARAKEET_BIN = `"$bin`"" -ForegroundColor Gray
-    Write-Host "Next: fetch a model -> scripts/fetch_parakeet_model.ps1" -ForegroundColor Green
 } else {
     Write-Warning "Build finished but parakeet-cli.exe was not found under build/examples/cli. Check CMake output above."
 }
+
+if ($Shared) {
+    $sflags = @("-DPARAKEET_SHARED=ON", "-DPARAKEET_BUILD_CLI=ON")
+    if ($Cuda) { $sflags += "-DPARAKEET_GGML_CUDA=ON" }
+    Write-Host "`n==> Configuring shared lib (build-shared)..." -ForegroundColor Cyan
+    cmake -B "$pk\build-shared" -S $pk @sflags
+    Write-Host "==> Building libparakeet (Release)..." -ForegroundColor Cyan
+    cmake --build "$pk\build-shared" --config Release -j
+
+    $lib = Get-ChildItem -Path "$pk\build-shared" -Recurse -Include "parakeet.dll","libparakeet.dll","libparakeet.so" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($lib) {
+        Write-Host "`n==> Built shared lib: $($lib.FullName)" -ForegroundColor Green
+        Write-Host "    (C-API warm path -- load once, fast)" -ForegroundColor Gray
+        Write-Host "    parakeet_capi.py auto-discovers it; override with:" -ForegroundColor Green
+        Write-Host "    `$env:PARAKEET_LIB = `"$($lib.FullName)`"" -ForegroundColor Gray
+    } else {
+        Write-Warning "Shared build finished but no libparakeet.{dll,so} found under build-shared. Check CMake output."
+    }
+}
+
+Write-Host "`nNext: fetch a model -> scripts/fetch_parakeet_model.ps1" -ForegroundColor Green
+Write-Host "Then enable:  `$env:STT_FINAL_ENGINE='parakeet'  (PARAKEET_BACKEND=auto picks C-API if built)" -ForegroundColor Green
