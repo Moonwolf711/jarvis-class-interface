@@ -31,3 +31,6 @@ launcher/JARVIS.exe
 launcher/build/
 launcher/__pycache__/
 installer/JARVIS-Setup.exe
+
+# vendored parakeet.cpp (built locally via scripts/build_parakeet.ps1)
+third_party/parakeet.cpp/

@@ -11,6 +11,7 @@ import threading
 import textwrap
 import torch
 import json
+import os
 import copy
 import time
 import re
@@ -153,6 +154,24 @@ class TranscriptionProcessor:
         self.silence_time: float = 0.0
         self.silence_active: bool = False
         self.last_audio_copy: Optional[np.ndarray] = None
+
+        # --- Optional Parakeet final-transcription backend (additive, OFF by default) ---
+        # Audio for the just-ended utterance, stashed at recording-stop so the
+        # realtime partial path cannot overwrite last_audio_copy before on_final
+        # reads it (prevents transcribing the wrong utterance with no error).
+        self._pending_final_audio: Optional[np.ndarray] = None
+        self.parakeet = None  # type: ignore[var-annotated]
+        if os.getenv("STT_FINAL_ENGINE", "whisper").strip().lower() == "parakeet":
+            try:
+                from stt_parakeet import ParakeetTranscriber
+                candidate = ParakeetTranscriber.from_env()
+                if candidate.is_available():
+                    self.parakeet = candidate
+                    logger.info(f"👂🦜 {Colors.YELLOW}Parakeet final-transcription backend enabled{Colors.RESET}")
+                else:
+                    logger.warning("👂🦜 STT_FINAL_ENGINE=parakeet but backend unavailable; using whisper finals.")
+            except Exception as exc:
+                logger.error(f"👂🦜 Failed to init Parakeet backend, using whisper: {exc}")
 
         self.on_tts_allowed_to_synthesize: Optional[Callable] = None # Note: Seems unused
 
@@ -352,15 +371,25 @@ class TranscriptionProcessor:
                 logger.warning("👂❓ Final transcription received None or empty string.")
                 return
 
-            self.final_transcription = text
-            logger.info(f"👂✅ {Colors.apply('Final user text: ').green} {Colors.apply(text).yellow}")
+            final_text = text
+            # Optional Parakeet re-transcription of the captured utterance: an
+            # accuracy A/B vs whisper, bounded by a hard timeout. Any failure
+            # returns None and falls straight back to the whisper `text` above.
+            if self.parakeet is not None and self._pending_final_audio is not None:
+                parakeet_text = self.parakeet.transcribe(self._pending_final_audio)
+                if parakeet_text:
+                    final_text = parakeet_text
+            self._pending_final_audio = None
+
+            self.final_transcription = final_text
+            logger.info(f"👂✅ {Colors.apply('Final user text: ').green} {Colors.apply(final_text).yellow}")
             self.sentence_end_cache.clear()
             self.potential_sentences_yielded.clear()
 
             if USE_TURN_DETECTION and hasattr(self, 'turn_detection'):
                 self.turn_detection.reset()
             if self.full_transcription_callback:
-                self.full_transcription_callback(text)
+                self.full_transcription_callback(final_text)
 
         if self.recorder:
             # The specific method might differ between client/local STT versions
@@ -689,6 +718,9 @@ class TranscriptionProcessor:
             logger.info("👂⏹️ Recording stopped.")
             # Get audio *before* recorder might clear it for final processing
             audio_copy = self.get_last_audio_copy() # Use get_last_audio_copy for robustness
+            # Stash this utterance's audio for on_final's optional Parakeet pass,
+            # so a subsequent partial can't overwrite the buffer first (race fix).
+            self._pending_final_audio = audio_copy
             if self.before_final_sentence:
                 logger.debug("👂➡️ Calling before_final_sentence callback...")
                 # Pass the audio and the *current* realtime text
